@@ -35,14 +35,14 @@ stream_endpoints:
 transport_adapters:
   dma:
     block_desc: 'chdr_dma.yml'
-  eth_qsfp0:
+  eth_qsfp1:
     block_desc: 'x4xx_eth.yml'
     parameters:
-      port_type0: 5  # 100 GbE on lane 0
+      port_type0: 5  # 100 GbE on lane 0 (UC_200: QSFP1 only)
       port_type1: 0  # Unused
       port_type2: 0  # Unused
       port_type3: 0  # Unused
-      qsfp_num: 0
+      qsfp_num: 1
 
 # A list of all NoC blocks in design
 # ----------------------------------
@@ -111,7 +111,7 @@ connections:
   # Transport Adapter Connections
   - { srcblk: dma,       srcport: chdr_dma_s, dstblk: _device_, dstport: chdr_dma_s }
   - { srcblk: _device_,  srcport: chdr_dma_m, dstblk: dma,      dstport: chdr_dma_m }
-  - { srcblk: eth_qsfp0, srcport: qsfp,       dstblk: _device_, dstport: qsfp0      }
+  - { srcblk: eth_qsfp1, srcport: qsfp,       dstblk: _device_, dstport: qsfp1      }
 
 # A list of all clock domain connections in design
 # ------------------------------------------------
