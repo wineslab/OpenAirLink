@@ -13,4 +13,4 @@
 # If not, see <https://www.gnu.org/licenses/>.
 ##############################################################################################
 
-RFNOC_REGISTER_IMAGE_CORE(SRC x310_rfnoc_image_core.yml)
+RFNOC_REGISTER_IMAGE_CORE(SRC x410_rfnoc_image_core.yml)

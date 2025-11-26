@@ -28,7 +28,7 @@ sudo ldconfig
 Load FPGA image to your USRP:
 ```
 cd ~/OpenAirLink/fpga-openairlink
-uhd_image_loader --args="type=x300" --fpga-path="usrp_x310_fpga_HG.bit"
+uhd_image_loader --args="type=x400" --fpga-path="usrp_x410_fpga_UC_200.bit"
 ```
 To check installation, run:
 ```
@@ -67,7 +67,7 @@ The OpenAirLink's channel configuration has two models:
 
 
 ## Currently Supported Hardware
-1. [NI USRP X310](https://www.ettus.com/all-products/x310-kit/])
+1. [NI USRP X410](https://www.ettus.com/all-products/usrp-x410/)
 
 ## Citing AirLink 
 Please use the citation file provided in the repository. For quick access: 
