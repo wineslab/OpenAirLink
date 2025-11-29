@@ -6,9 +6,16 @@ copyright: >-                           # Copyright information used in file hea
 license: >-                             # License information used in file headers
   SPDX-License-Identifier: LGPL-3.0-or-later
 version: '1.0'                          # File version (must be string so we can distinguish 1.1 and 1.10)
-chdr_width: 512                         # Bit width of the CHDR bus for this image (X410 uses 512-bit)
+chdr_width: 64                          # Bit width of the CHDR bus for this image (64 for X4_200)
 device: 'x410'
-default_target: 'X410_UC_200'
+default_target: 'X410'
+
+parameters:
+  RF_BW: 200
+  ENABLE_DRAM: True
+  NUM_DRAM_BANKS: 1
+  NUM_DRAM_CHANS: 4
+  DRAM_WIDTH: 64
 
 # A list of all stream endpoints in design
 # ----------------------------------------
@@ -35,14 +42,14 @@ stream_endpoints:
 transport_adapters:
   dma:
     block_desc: 'chdr_dma.yml'
-  eth_qsfp1:
+  eth_qsfp0:
     block_desc: 'x4xx_eth.yml'
     parameters:
-      port_type0: 5  # 100 GbE on lane 0 (UC_200: QSFP1 only)
-      port_type1: 0  # Unused
-      port_type2: 0  # Unused
-      port_type3: 0  # Unused
-      qsfp_num: 1
+      port_type0: 2  # 10 GbE lane 0
+      port_type1: 2  # 10 GbE lane 1
+      port_type2: 2  # 10 GbE lane 2
+      port_type3: 2  # 10 GbE lane 3
+      qsfp_num: 0
 
 # A list of all NoC blocks in design
 # ----------------------------------
@@ -111,7 +118,7 @@ connections:
   # Transport Adapter Connections
   - { srcblk: dma,       srcport: chdr_dma_s, dstblk: _device_, dstport: chdr_dma_s }
   - { srcblk: _device_,  srcport: chdr_dma_m, dstblk: dma,      dstport: chdr_dma_m }
-  - { srcblk: eth_qsfp1, srcport: qsfp,       dstblk: _device_, dstport: qsfp1      }
+  - { srcblk: eth_qsfp0, srcport: qsfp,       dstblk: _device_, dstport: qsfp0      }
 
 # A list of all clock domain connections in design
 # ------------------------------------------------
