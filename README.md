@@ -69,13 +69,35 @@ The OpenAirLink's channel configuration has two models:
 ## Currently Supported Hardware
 1. [NI USRP X410](https://www.ettus.com/all-products/usrp-x410/)
 
-## Citing AirLink 
-Please use the citation file provided in the repository. For quick access: 
+## X410 Quick Start
 
+**Build FPGA Image:**
+```bash
+cd rfnoc-openairlink/build
+cmake -DUHD_FPGA_DIR=/path/to/uhd/fpga/ ../
+make x410_rfnoc_image_core
 ```
-Y. Deshpande, X. Wang and W. Kellerer, "OpenAirLink: Reproducible Wireless Channel Emulation using Software Defined Radios," 2024 IFIP Networking Conference (IFIP Networking), Thessaloniki, Greece, 2024, pp. 1-6, doi: 10.23919/IFIPNetworking62109.2024.10619070.
+The bitstream will be at: `icores/build-x410_rfnoc_image_core/x4xx.bit`
+
+**Load to X410:**
+```bash
+uhd_image_loader --args="type=x4xx,addr=<X410_IP>" --fpga-path="x4xx.bit"
+reboot  # Reboot X410 after loading
 ```
 
-## Contributors 
-1. Xianglong Wang
-2. Yash Deshpande
+**Hardware Connections:**
+- **Downlink:** TX → X410 Port A (DB0) RX → X410 Port B (DB1) TX → RX
+- **Uplink:** TX → X410 Port B (DB1) RX → X410 Port A (DB0) TX → RX
+
+**Channel Updates:**
+Edit `channel_control/chan_singel_manually.csv` while emulator runs:
+```
+32767 0 0 0 ... 0, 6    # Format: FIR_taps (41 int16 values), shift_value
+```
+- FIR taps: Channel impulse response (from ray tracing)
+- Shift value: Attenuation (4-7 typical)
+
+**Configuration:**
+- Manual mode: Real-time updates via CSV editing
+- Script mode: Time-based channel changes with `--script` flag
+- Update rate: Adjust with `--udt <seconds>` argument
