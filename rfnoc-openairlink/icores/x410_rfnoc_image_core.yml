@@ -23,19 +23,19 @@ stream_endpoints:
   ep0:                                  # Stream endpoint name
     ctrl: True                          # Endpoint passes control traffic
     data: True                          # Endpoint passes data traffic
-    buff_size: 32768                    # Ingress buffer size for data
+    buff_size_bytes: 262144             # Ingress buffer size for data
   ep1:
     ctrl: False
     data: True
-    buff_size: 0
+    buff_size_bytes: 262144
   ep2:
     ctrl: False
     data: True
-    buff_size: 32768
+    buff_size_bytes: 262144
   ep3:
     ctrl: False
     data: True
-    buff_size: 0
+    buff_size_bytes: 262144
 
 # A list of all transport adapters in design
 # ------------------------------------------
@@ -58,10 +58,14 @@ noc_blocks:
     block_desc: 'radio.yml'             # Block device descriptor file
     parameters:
       NUM_PORTS: 2
+    ctrl_clock: _device_.rfnoc_ctrl     # The clock used for the control interface
+    timebase_clock: _device_.radio      # The clock used for the timebase
   radio1:
     block_desc: 'radio.yml'
     parameters:
       NUM_PORTS: 2
+    ctrl_clock: _device_.rfnoc_ctrl
+    timebase_clock: _device_.radio
   # Here's our new block:
   shiftright0:
     block_desc: 'shiftright.yml'
