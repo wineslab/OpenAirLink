@@ -220,8 +220,8 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
 
     rfa_radio_ctrl->enable_rx_timestamps(rx_timestamps, rfa_chan);
     rfb_radio_ctrl->enable_rx_timestamps(rx_timestamps, rfb_chan);
-    rfa_radio_ctrl->set_rx_dc_offset(true, rfa_chan); // Set up DC offset calibration
-    rfb_radio_ctrl->set_rx_dc_offset(true, rfb_chan);
+    // rfa_radio_ctrl->set_rx_dc_offset(true, rfa_chan); // Set up DC offset calibration - Not supported on X410/ZBX
+    // rfb_radio_ctrl->set_rx_dc_offset(true, rfb_chan);
 
     // Set up FIR Filter
     fir0_ctrl->set_coefficients(fir_coeffs, 0);

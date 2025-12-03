@@ -208,7 +208,7 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
     graph->commit();
 
     rx_radio_ctrl->enable_rx_timestamps(rx_timestamps, rx_chan);
-    rx_radio_ctrl->set_rx_dc_offset(true, rx_chan);  // Set up DC offset calibration
+    // rx_radio_ctrl->set_rx_dc_offset(true, rx_chan);  // Set up DC offset calibration - Not supported on X410/ZBX
 
     // Set up FIR Filter
     fir_ctrl->set_coefficients(fir_coeffs, 0);
@@ -250,6 +250,11 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
               << std::endl;
 
     // set the antennas
+    rx_radio_ctrl->set_rx_antenna("TX/RX0", rx_chan);
+    tx_radio_ctrl->set_tx_antenna("TX/RX0", tx_chan);
+    std::cout << boost::format("RX Antenna: %s") % rx_radio_ctrl->get_rx_antenna(rx_chan) << std::endl;
+    std::cout << boost::format("TX Antenna: %s") % tx_radio_ctrl->get_tx_antenna(tx_chan) << std::endl;
+    
     rx_radio_ctrl->set_property<int>("spp", spp, 0);
     spp = rx_radio_ctrl->get_property<int>("spp", 0);
     std::cout << "Samples per packet: " << spp << std::endl;
