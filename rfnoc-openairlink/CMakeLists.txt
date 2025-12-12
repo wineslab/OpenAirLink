@@ -138,7 +138,7 @@ macro(RFNOC_REGISTER_IMAGE_CORE)
     if (_rfnoc_image_builder_exe)
         message(STATUS "Adding image core target: ${_target_name}")
         add_custom_target(${_target_name}
-            COMMAND ${_rfnoc_image_builder_exe} -F ${UHD_FPGA_DIR} -y ${CMAKE_CURRENT_SOURCE_DIR}/${_rfnoc_image_core_SRC} -I ${CMAKE_SOURCE_DIR}
+            COMMAND ${_rfnoc_image_builder_exe} -F ${UHD_FPGA_DIR} -y ${CMAKE_CURRENT_SOURCE_DIR}/${_rfnoc_image_core_SRC} -I ${CMAKE_SOURCE_DIR} --ignore-warnings
         )
     endif()
 endmacro()

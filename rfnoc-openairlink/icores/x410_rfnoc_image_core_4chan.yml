@@ -1,16 +1,20 @@
 # General parameters
 # -----------------------------------------
 # 1 gNB + 3 UE Bidirectional Channel Emulator Configuration
-# 
-# Topology:
-#   gNB <---> radio0 (RX: gNB TX, TX: combined UL to gNB)
-#   UE1 <---> radio1 (RX: UE1 TX, TX: DL to UE1)
-#   UE2 <---> radio2 (RX: UE2 TX, TX: DL to UE2)
-#   UE3 <---> radio3 (RX: UE3 TX, TX: DL to UE3)
+#
+# IMPORTANT (X410 BSP constraint): UHD's X410 BSP exposes two radio interfaces
+# (_device_.radio0 and _device_.radio1) and their ctrlports. Each radio block
+# can be configured with NUM_PORTS=2, yielding 4 RF ports total.
+#
+# Topology (4 RF ports using 2 radio blocks):
+#   gNB  <---> radio0 port 0 (RX: gNB TX, TX: combined UL to gNB)
+#   UE1  <---> radio0 port 1 (RX: UE1 TX, TX: DL to UE1)
+#   UE2  <---> radio1 port 0 (RX: UE2 TX, TX: DL to UE2)
+#   UE3  <---> radio1 port 1 (RX: UE3 TX, TX: DL to UE3)
 #
 # Signal Flow:
-#   DOWNLINK: radio0_RX -> SPLIT -> FIR -> shift -> radio1/2/3_TX
-#   UPLINK:   radio1/2/3_RX -> FIR -> shift -> ADDER -> radio0_TX
+#   DOWNLINK: radio0_RX0 -> SPLIT -> FIR -> shift -> (radio0_TX1, radio1_TX0, radio1_TX1)
+#   UPLINK:   (radio0_RX1, radio1_RX0, radio1_RX1) -> FIR -> shift -> ADDER -> radio0_TX0
 
 
 ########################################################################
@@ -96,30 +100,20 @@ transport_adapters:
 # ----------------------------------
 noc_blocks:
   # ============================================
-  # RADIOS (4 radios, using port 0 of each)
+  # RADIOS (2 radios, 2 ports each = 4 RF ports)
   # ============================================
-  radio0:  # gNB side
+  radio0:  # gNB (port 0) + UE1 (port 1)
     block_desc: 'radio.yml'
     parameters:
       NUM_PORTS: 2
+      NIPC: RADIO_NIPC  # Must match BSP's RADIO_SPC (2 for 200MHz BW)
     ctrl_clock: _device_.rfnoc_ctrl
     timebase_clock: _device_.radio
-  radio1:  # UE1 side
+  radio1:  # UE2 (port 0) + UE3 (port 1)
     block_desc: 'radio.yml'
     parameters:
       NUM_PORTS: 2
-    ctrl_clock: _device_.rfnoc_ctrl
-    timebase_clock: _device_.radio
-  radio2:  # UE2 side
-    block_desc: 'radio.yml'
-    parameters:
-      NUM_PORTS: 2
-    ctrl_clock: _device_.rfnoc_ctrl
-    timebase_clock: _device_.radio
-  radio3:  # UE3 side
-    block_desc: 'radio.yml'
-    parameters:
-      NUM_PORTS: 2
+      NIPC: RADIO_NIPC  # Must match BSP's RADIO_SPC (2 for 200MHz BW)
     ctrl_clock: _device_.rfnoc_ctrl
     timebase_clock: _device_.radio
 
@@ -191,10 +185,11 @@ noc_blocks:
   # AddSub only supports 2 inputs, so we cascade two
   # addsub0: UE1 + UE2 -> intermediate
   # addsub1: intermediate + UE3 -> combined uplink
+  # Using patched addsub block descriptor (workaround for USE_IMPL quoting bug)
   addsub0:
-    block_desc: 'addsub.yml'
+    block_desc: 'addsub_patched.yml'
   addsub1:
-    block_desc: 'addsub.yml'
+    block_desc: 'addsub_patched.yml'
 
 # A list of all static connections in design
 # ------------------------------------------
@@ -219,17 +214,17 @@ connections:
   - { srcblk: fir_dl2,   srcport: out_0,  dstblk: shift_dl2, dstport: in }
   
   # Shift output to UE radios TX
-  - { srcblk: shift_dl0, srcport: out,    dstblk: radio1,    dstport: in_0 }
-  - { srcblk: shift_dl1, srcport: out,    dstblk: radio2,    dstport: in_0 }
-  - { srcblk: shift_dl2, srcport: out,    dstblk: radio3,    dstport: in_0 }
+  - { srcblk: shift_dl0, srcport: out,    dstblk: radio0,    dstport: in_1 }  # UE1 DL
+  - { srcblk: shift_dl1, srcport: out,    dstblk: radio1,    dstport: in_0 }  # UE2 DL
+  - { srcblk: shift_dl2, srcport: out,    dstblk: radio1,    dstport: in_1 }  # UE3 DL
 
   # ============================================
   # UPLINK PATH: UEs -> gNB
   # ============================================
-  # UE TX signals received at radio1/2/3 RX
-  - { srcblk: radio1,    srcport: out_0,  dstblk: fir_ul0,   dstport: in_0 }
-  - { srcblk: radio2,    srcport: out_0,  dstblk: fir_ul1,   dstport: in_0 }
-  - { srcblk: radio3,    srcport: out_0,  dstblk: fir_ul2,   dstport: in_0 }
+  # UE TX signals received at radio RX ports
+  - { srcblk: radio0,    srcport: out_1,  dstblk: fir_ul0,   dstport: in_0 }  # UE1 UL
+  - { srcblk: radio1,    srcport: out_0,  dstblk: fir_ul1,   dstport: in_0 }  # UE2 UL
+  - { srcblk: radio1,    srcport: out_1,  dstblk: fir_ul2,   dstport: in_0 }  # UE3 UL
   
   # FIR -> Shift for each UL path
   - { srcblk: fir_ul0,   srcport: out_0,  dstblk: shift_ul0, dstport: in }
@@ -249,35 +244,15 @@ connections:
   - { srcblk: addsub1,   srcport: add,    dstblk: radio0,    dstport: in_0 }
 
   # ============================================
-  # UNUSED PORTS -> Stream Endpoints (for debug/monitoring)
-  # ============================================
-  # Second RX channels (unused in main path)
-  - { srcblk: radio0, srcport: out_1, dstblk: ep0, dstport: in0 }
-  - { srcblk: radio1, srcport: out_1, dstblk: ep1, dstport: in0 }
-  - { srcblk: radio2, srcport: out_1, dstblk: ep2, dstport: in0 }
-  - { srcblk: radio3, srcport: out_1, dstblk: ep3, dstport: in0 }
-  
-  # Second TX channels (unused in main path)
-  - { srcblk: ep4, srcport: out0, dstblk: radio0, dstport: in_1 }
-  - { srcblk: ep5, srcport: out0, dstblk: radio1, dstport: in_1 }
-  - { srcblk: ep6, srcport: out0, dstblk: radio2, dstport: in_1 }
-  - { srcblk: ep7, srcport: out0, dstblk: radio3, dstport: in_1 }
-
   # ============================================
   # BSP Connections
   # ============================================
   - { srcblk: radio0,   srcport: ctrlport, dstblk: _device_, dstport: ctrlport_radio0 }
   - { srcblk: radio1,   srcport: ctrlport, dstblk: _device_, dstport: ctrlport_radio1 }
-  - { srcblk: radio2,   srcport: ctrlport, dstblk: _device_, dstport: ctrlport_radio2 }
-  - { srcblk: radio3,   srcport: ctrlport, dstblk: _device_, dstport: ctrlport_radio3 }
   - { srcblk: _device_, srcport: radio0,   dstblk: radio0,   dstport: radio }
   - { srcblk: _device_, srcport: radio1,   dstblk: radio1,   dstport: radio }
-  - { srcblk: _device_, srcport: radio2,   dstblk: radio2,   dstport: radio }
-  - { srcblk: _device_, srcport: radio3,   dstblk: radio3,   dstport: radio }
   - { srcblk: _device_, srcport: time,     dstblk: radio0,   dstport: time }
   - { srcblk: _device_, srcport: time,     dstblk: radio1,   dstport: time }
-  - { srcblk: _device_, srcport: time,     dstblk: radio2,   dstport: time }
-  - { srcblk: _device_, srcport: time,     dstblk: radio3,   dstport: time }
 
   # Transport Adapter Connections
   - { srcblk: dma,       srcport: chdr_dma_s, dstblk: _device_, dstport: chdr_dma_s }
@@ -290,12 +265,8 @@ clk_domains:
   # Radios
   - { srcblk: _device_, srcport: radio, dstblk: radio0, dstport: radio }
   - { srcblk: _device_, srcport: radio, dstblk: radio1, dstport: radio }
-  - { srcblk: _device_, srcport: radio, dstblk: radio2, dstport: radio }
-  - { srcblk: _device_, srcport: radio, dstblk: radio3, dstport: radio }
   
-  # Downlink processing blocks
-  - { srcblk: _device_, srcport: ce, dstblk: split0,    dstport: ce }
-  - { srcblk: _device_, srcport: ce, dstblk: split1,    dstport: ce }
+  # Downlink processing blocks (split_stream uses rfnoc_chdr, not ce)
   - { srcblk: _device_, srcport: ce, dstblk: fir_dl0,   dstport: ce }
   - { srcblk: _device_, srcport: ce, dstblk: fir_dl1,   dstport: ce }
   - { srcblk: _device_, srcport: ce, dstblk: fir_dl2,   dstport: ce }

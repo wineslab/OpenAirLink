@@ -66,3 +66,15 @@ target_link_libraries(oal_dual
 )
 
 target_compile_definitions(oal_dual PRIVATE CMAKE_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
+
+add_executable(oal_4chan
+oal_4chan.cpp
+)
+target_link_libraries(oal_4chan
+    ${UHD_LIBRARIES}
+    ${Boost_LIBRARIES}
+    -Wl,--no-as-needed
+    rfnoc-openairlink
+)
+
+target_compile_definitions(oal_4chan PRIVATE CMAKE_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
