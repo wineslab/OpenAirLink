@@ -1,14 +1,1 @@
-# OpenAirLink 4-Channel Manual Configuration
-# Format: fir_dl0, shift_dl0, fir_dl1, shift_dl1, fir_dl2, shift_dl2, fir_ul0, shift_ul0, fir_ul1, shift_ul1, fir_ul2, shift_ul2
-# fir = FIR coefficients (space-separated), shift = right-shift bits (attenuation: 6dB per bit)
-#
-# Channels:
-#   DL0: gNB -> UE1
-#   DL1: gNB -> UE2
-#   DL2: gNB -> UE3
-#   UL0: UE1 -> gNB
-#   UL1: UE2 -> gNB
-#   UL2: UE3 -> gNB
-#
-# Example: passthrough with 0dB attenuation on all channels
 32767 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0, 0, 32767 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0, 0, 32767 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0, 0, 32767 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0, 0, 32767 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0, 0, 32767 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0, 0
