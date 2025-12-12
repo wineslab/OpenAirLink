@@ -25,6 +25,22 @@ make -j$(nproc) oal_4chan
 
 **Channel config files:** `channel_control/chan_4chan_manually.csv` or `chan_4chan_script.csv`
 
+
+Based on the x410_rfnoc_image_core_4chan.yml configuration:
+
+## X410 Front Panel RF Port Mapping
+
+| Port | Radio Block | Role | Signal Direction |
+|------|-------------|------|------------------|
+| **RF0 (DB0 CH0)** | radio0 port 0 | **gNB** | RX: gNB TX input → DL to UEs<br>TX: Combined UL from all UEs |
+| **RF1 (DB0 CH1)** | radio0 port 1 | **UE1** | RX: UE1 TX input → UL to gNB<br>TX: DL to UE1 |
+| **RF2 (DB1 CH0)** | radio1 port 0 | **UE2** | RX: UE2 TX input → UL to gNB<br>TX: DL to UE2 |
+| **RF3 (DB1 CH1)** | radio1 port 1 | **UE3** | RX: UE3 TX input → UL to gNB<br>TX: DL to UE3 |
+
+**Connection example:**
+- Connect your gNB's TX to X410 RF0 RX, gNB's RX to X410 RF0 TX
+- Connect UE1's TX to X410 RF1 RX, UE1's RX to X410 RF1 TX
+- etc.
 ---
 
 # Troubleshooting
