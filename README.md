@@ -101,3 +101,46 @@ Edit `channel_control/chan_singel_manually.csv` while emulator runs:
 - Manual mode: Real-time updates via CSV editing
 - Script mode: Time-based channel changes with `--script` flag
 - Update rate: Adjust with `--udt <seconds>` argument
+
+**Run the Emulation:**
+```bash
+cd ~/OpenAirLink/rfnoc-openairlink/build
+LD_PRELOAD=/usr/local/lib/librfnoc-openairlink.so ./apps/oal_single
+```
+
+## X410 4-Channel Mode (1 gNB + 3 UEs)
+
+**Build FPGA Image:**
+```bash
+cd rfnoc-openairlink/build
+cmake -DUHD_FPGA_DIR=/path/to/uhd/fpga/ ../
+make x410_rfnoc_image_core_4chan
+```
+
+**Load to X410:**
+```bash
+uhd_image_loader --args="type=x4xx,addr=<X410_IP>" --fpga-path="icores/build-x410_rfnoc_image_core_4chan/x4xx.bit"
+# Reboot X410 after loading
+```
+
+**Port Mapping:**
+| Port | Radio | Role |
+|------|-------|------|
+| DB0 RX0 | radio0:0 | gNB |
+| DB0 RX1 | radio0:1 | UE1 |
+| DB1 RX0 | radio1:0 | UE2 |
+| DB1 RX1 | radio1:1 | UE3 |
+
+**Run the Emulator:**
+```bash
+LD_PRELOAD=/usr/local/lib/librfnoc-openairlink.so ./apps/oal_4chan
+```
+
+**Per-Port Gain Control:**
+```bash
+# Format: gNB,UE1,UE2,UE3
+./apps/oal_4chan --rx-gains "0,10,15,20" --tx-gains "5,10,10,10"
+```
+
+**Channel Configuration:**
+Edit `channel_control/chan_4chan_manually.csv` while running (6 channels: 3 DL + 3 UL)

@@ -93,6 +93,32 @@ std::vector<int16_t> fir_parser(std::string input)
 }
 
 /****************************************************************************
+ * Parse comma-separated gain values (e.g., "0,10,15,20" -> vector of 4 doubles)
+ ***************************************************************************/
+std::vector<double> parse_gains(const std::string& input, size_t expected_count, double default_val)
+{
+    std::vector<double> gains;
+    if (input.empty()) {
+        // Return vector filled with default value
+        gains.assign(expected_count, default_val);
+        return gains;
+    }
+    
+    std::istringstream iss(input);
+    std::string token;
+    while (std::getline(iss, token, ',')) {
+        gains.push_back(std::stod(space_trim(token)));
+    }
+    
+    // Pad with default value if fewer values provided
+    while (gains.size() < expected_count) {
+        gains.push_back(default_val);
+    }
+    
+    return gains;
+}
+
+/****************************************************************************
  * Utility function to trim whitespace from both ends of a string
  ***************************************************************************/
 std::string space_trim(const std::string& str) {
@@ -164,7 +190,9 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
 {
     // variables to be set by po
     std::string args;
-    double gnb_freq, ue_freq, rx_gain, tx_gain, rx_bw, tx_bw, update_t, print_t, scruni_t;
+    double gnb_freq, ue_freq, rx_bw, tx_bw, update_t, print_t, scruni_t;
+    std::string rx_gains_str, tx_gains_str;  // Comma-separated per-port gains
+    double default_rx_gain = 0.0, default_tx_gain = 0.0;
 
     // Block IDs for the 4-channel configuration
     std::string radio0_id = "0/Radio#0";   // gNB (port 0) + UE1 (port 1)
@@ -209,8 +237,10 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
         ("args", po::value<std::string>(&args)->default_value(""), "UHD device address args")
         ("gnb-freq", po::value<double>(&gnb_freq)->default_value(3619.2e6), "gNB RF center frequency in Hz")
         ("ue-freq", po::value<double>(&ue_freq)->default_value(3619.2e6), "UE RF center frequency in Hz")
-        ("rx-gain", po::value<double>(&rx_gain)->default_value(0.0), "RX gain in dB")
-        ("tx-gain", po::value<double>(&tx_gain)->default_value(0.0), "TX gain in dB")
+        ("rx-gains", po::value<std::string>(&rx_gains_str)->default_value(""), 
+            "Per-port RX gains in dB, comma-separated: gNB,UE1,UE2,UE3 (e.g., '0,10,15,20')")
+        ("tx-gains", po::value<std::string>(&tx_gains_str)->default_value(""), 
+            "Per-port TX gains in dB, comma-separated: gNB,UE1,UE2,UE3 (e.g., '0,10,15,20')")
         ("rx-bw", po::value<double>(&rx_bw)->default_value(100e6), "RX analog frontend filter bandwidth in Hz")
         ("tx-bw", po::value<double>(&tx_bw)->default_value(100e6), "TX analog frontend filter bandwidth in Hz")
         ("udt", po::value<double>(&update_t)->default_value(1), "Time period to update emulator channel (s)")
@@ -350,18 +380,24 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
     std::cout << boost::format("UE3 (radio1 port1) Freq: %f MHz") 
               % (radio1_ctrl->get_rx_frequency(1) / 1e6) << std::endl;
 
-    // Set RF gains
-    radio0_ctrl->set_rx_gain(rx_gain, 0);
-    radio0_ctrl->set_rx_gain(rx_gain, 1);
-    radio1_ctrl->set_rx_gain(rx_gain, 0);
-    radio1_ctrl->set_rx_gain(rx_gain, 1);
-    std::cout << boost::format("RX Gain: %f dB") % rx_gain << std::endl;
+    // Parse and set per-port RF gains
+    // Port order: [0]=gNB, [1]=UE1, [2]=UE2, [3]=UE3
+    std::vector<double> rx_gains = parse_gains(rx_gains_str, 4, default_rx_gain);
+    std::vector<double> tx_gains = parse_gains(tx_gains_str, 4, default_tx_gain);
 
-    radio0_ctrl->set_tx_gain(tx_gain, 0);
-    radio0_ctrl->set_tx_gain(tx_gain, 1);
-    radio1_ctrl->set_tx_gain(tx_gain, 0);
-    radio1_ctrl->set_tx_gain(tx_gain, 1);
-    std::cout << boost::format("TX Gain: %f dB") % tx_gain << std::endl;
+    radio0_ctrl->set_rx_gain(rx_gains[0], 0);  // gNB
+    radio0_ctrl->set_rx_gain(rx_gains[1], 1);  // UE1
+    radio1_ctrl->set_rx_gain(rx_gains[2], 0);  // UE2
+    radio1_ctrl->set_rx_gain(rx_gains[3], 1);  // UE3
+    std::cout << boost::format("RX Gains (gNB,UE1,UE2,UE3): %.1f, %.1f, %.1f, %.1f dB")
+              % rx_gains[0] % rx_gains[1] % rx_gains[2] % rx_gains[3] << std::endl;
+
+    radio0_ctrl->set_tx_gain(tx_gains[0], 0);  // gNB
+    radio0_ctrl->set_tx_gain(tx_gains[1], 1);  // UE1
+    radio1_ctrl->set_tx_gain(tx_gains[2], 0);  // UE2
+    radio1_ctrl->set_tx_gain(tx_gains[3], 1);  // UE3
+    std::cout << boost::format("TX Gains (gNB,UE1,UE2,UE3): %.1f, %.1f, %.1f, %.1f dB")
+              % tx_gains[0] % tx_gains[1] % tx_gains[2] % tx_gains[3] << std::endl;
 
     // Set RF bandwidths
     radio0_ctrl->set_rx_bandwidth(rx_bw, 0);
