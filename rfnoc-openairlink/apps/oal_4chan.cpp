@@ -93,6 +93,20 @@ std::vector<int16_t> fir_parser(std::string input)
 }
 
 /****************************************************************************
+ * Utility function to trim whitespace from both ends of a string
+ ***************************************************************************/
+std::string space_trim(const std::string& str) {
+    std::string out = str;
+    out.erase(out.begin(), std::find_if(out.begin(), out.end(), [](unsigned char ch) {
+        return !std::isspace(ch);
+    }));
+    out.erase(std::find_if(out.rbegin(), out.rend(), [](unsigned char ch) {
+        return !std::isspace(ch);
+    }).base(), out.end());
+    return out;
+}
+
+/****************************************************************************
  * Parse comma-separated gain values (e.g., "0,10,15,20" -> vector of 4 doubles)
  ***************************************************************************/
 std::vector<double> parse_gains(const std::string& input, size_t expected_count, double default_val)
@@ -116,20 +130,6 @@ std::vector<double> parse_gains(const std::string& input, size_t expected_count,
     }
     
     return gains;
-}
-
-/****************************************************************************
- * Utility function to trim whitespace from both ends of a string
- ***************************************************************************/
-std::string space_trim(const std::string& str) {
-    std::string out = str;
-    out.erase(out.begin(), std::find_if(out.begin(), out.end(), [](unsigned char ch) {
-        return !std::isspace(ch);
-    }));
-    out.erase(std::find_if(out.rbegin(), out.rend(), [](unsigned char ch) {
-        return !std::isspace(ch);
-    }).base(), out.end());
-    return out;
 }
 
 /****************************************************************************
