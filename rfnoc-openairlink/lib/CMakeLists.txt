@@ -22,6 +22,8 @@
 # is no block controller), then this directory will be skipped.
 list(APPEND rfnoc_openairlink_sources
     shiftright_block_control.cpp
+    mt_protocol.cpp
+    oal_common.cpp
 )
 if(NOT rfnoc_openairlink_sources)
     MESSAGE(STATUS "No C++ sources... skipping lib/")

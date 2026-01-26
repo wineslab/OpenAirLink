@@ -78,3 +78,21 @@ target_link_libraries(oal_4chan
 )
 
 target_compile_definitions(oal_4chan PRIVATE CMAKE_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
+
+# ZMQ-based 4-channel emulator with MT protocol support
+if(HAVE_ZMQ)
+    add_executable(oal_4chan_zmq
+        oal_4chan_zmq.cpp
+    )
+    target_link_libraries(oal_4chan_zmq
+        ${UHD_LIBRARIES}
+        ${Boost_LIBRARIES}
+        ${ZMQ_LIBRARIES}
+        -Wl,--no-as-needed
+        rfnoc-openairlink
+    )
+    target_compile_definitions(oal_4chan_zmq PRIVATE CMAKE_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
+    message(STATUS "Building oal_4chan_zmq with ZMQ support")
+else()
+    message(STATUS "Skipping oal_4chan_zmq (ZMQ not found)")
+endif()

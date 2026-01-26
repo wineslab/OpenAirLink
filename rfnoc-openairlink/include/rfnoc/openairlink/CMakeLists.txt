@@ -17,6 +17,8 @@
 install(
     FILES
     shiftright_block_control.hpp
-    DESTINATION include/rfnoc/shiftright
+    mt_protocol.hpp
+    oal_common.hpp
+    DESTINATION include/rfnoc/openairlink
     COMPONENT headers
 )

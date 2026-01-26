@@ -68,6 +68,39 @@ else()
 endif()
 
 ###########################################################################
+# Find ZeroMQ (for MT protocol applications)
+###########################################################################
+find_package(PkgConfig)
+if(PkgConfig_FOUND)
+    pkg_check_modules(ZMQ libzmq)
+    if(ZMQ_FOUND)
+        message(STATUS "Found ZeroMQ:")
+        message(STATUS " * INCLUDES = ${ZMQ_INCLUDE_DIRS}")
+        message(STATUS " * LIBS = ${ZMQ_LIBRARIES}")
+        include_directories(${ZMQ_INCLUDE_DIRS})
+        link_directories(${ZMQ_LIBRARY_DIRS})
+        set(HAVE_ZMQ TRUE)
+    else()
+        message(STATUS "ZeroMQ not found. ZMQ-based applications will not be built.")
+        set(HAVE_ZMQ FALSE)
+    endif()
+else()
+    # Try to find ZMQ directly without pkg-config
+    find_path(ZMQ_INCLUDE_DIRS zmq.h)
+    find_library(ZMQ_LIBRARIES zmq)
+    if(ZMQ_INCLUDE_DIRS AND ZMQ_LIBRARIES)
+        message(STATUS "Found ZeroMQ:")
+        message(STATUS " * INCLUDES = ${ZMQ_INCLUDE_DIRS}")
+        message(STATUS " * LIBS = ${ZMQ_LIBRARIES}")
+        include_directories(${ZMQ_INCLUDE_DIRS})
+        set(HAVE_ZMQ TRUE)
+    else()
+        message(STATUS "ZeroMQ not found. ZMQ-based applications will not be built.")
+        set(HAVE_ZMQ FALSE)
+    endif()
+endif()
+
+###########################################################################
 # Find FPGA
 ###########################################################################
 set(UHD_FPGA_DIR "" CACHE PATH "Path to FPGA source directory")
