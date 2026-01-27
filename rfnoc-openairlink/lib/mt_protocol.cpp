@@ -70,15 +70,52 @@ namespace rfnoc
 
             void pdp_to_fir_coeffs(const col_filter_t &pdp, std::vector<int16_t> &fir_coeffs)
             {
-                // The dynscen client sends all 41 taps directly
-                // Simply extract the real part of each coefficient (imaginary is ignored)
-                fir_coeffs.resize(NUM_FIR_TAPS);
+                // OpenAirLink has 41 FIR taps at 5ns spacing (200ns max delay)
+                // pymt sends 4 sparse taps with delay positions in 10ns units
+                //
+                // Mapping: delay_10ns -> tap_index = delay_10ns * 2 (since 10ns / 5ns = 2)
+                // But we must clamp to valid range [0, 40]
 
-                for (size_t i = 0; i < NUM_FIR_TAPS; i++)
+                constexpr size_t MAX_TAP_INDEX = NUM_FIR_TAPS - 1; // 40
+
+                // Initialize all 41 taps to zero
+                fir_coeffs.assign(NUM_FIR_TAPS, 0);
+
+                // Process each of the 4 sparse taps
+                for (size_t i = 0; i < NUM_PDP_TAPS; i++)
                 {
-                    // Use the real part directly as int16_t
-                    // The coefficients are in Q15 format (uint16_t), interpret as signed
-                    fir_coeffs[i] = static_cast<int16_t>(pdp.coeff_real[i]);
+                    // Get complex coefficient - use only real part (imaginary ignored)
+                    uint16_t coeff_real = pdp.coeffs[i].real();
+                    // uint16_t coeff_imag = pdp.coeffs[i].imag(); // Ignored
+
+                    // Skip zero coefficients
+                    if (coeff_real == 0)
+                    {
+                        continue;
+                    }
+
+                    // Convert delay from 10ns units to 5ns tap index
+                    // delay_10ns * 2 gives tap index at 5ns spacing
+                    size_t tap_index = static_cast<size_t>(pdp.delays[i]) * 2;
+
+                    // Clamp to valid range [0, 40]
+                    if (tap_index > MAX_TAP_INDEX)
+                    {
+                        tap_index = MAX_TAP_INDEX;
+                    }
+
+                    // Accumulate coefficient (in case multiple taps map to same index)
+                    // Coefficients are Q15 unsigned, interpret as signed for FIR
+                    int32_t sum = static_cast<int32_t>(fir_coeffs[tap_index]) +
+                                  static_cast<int16_t>(coeff_real);
+
+                    // Clamp to int16_t range
+                    if (sum > 32767)
+                        sum = 32767;
+                    if (sum < -32768)
+                        sum = -32768;
+
+                    fir_coeffs[tap_index] = static_cast<int16_t>(sum);
                 }
             }
 

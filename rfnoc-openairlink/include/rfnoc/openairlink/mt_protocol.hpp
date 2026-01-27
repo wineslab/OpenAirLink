@@ -37,7 +37,8 @@ namespace rfnoc { namespace openairlink { namespace mt_protocol {
 
 constexpr size_t COMMON_HEADER_SIZE = 24;  // Size of common message header
 constexpr size_t MAX_PACKET_SIZE = 65535;  // Maximum packet size (jumbo frame)
-constexpr size_t NUM_FIR_TAPS = 41;        // Number of FIR taps (5ns spacing, 200ns max delay)
+constexpr size_t NUM_PDP_TAPS = 4;         // Number of taps per PDP in MT-010 (original pymt format)
+constexpr size_t NUM_FIR_TAPS = 41;        // Number of FIR taps in OpenAirLink (5ns spacing, 200ns max delay)
 
 //=============================================================================
 // Message Type IDs
@@ -95,19 +96,21 @@ struct radio_data_t {
 };
 
 /**
- * Power Delay Profile / Channel Filter for OpenAirLink
+ * Power Delay Profile / Channel Filter (28 bytes)
  * 
- * Contains 41 FIR tap coefficients (5ns spacing, 200ns max delay).
- * The dynscen client sends all 41 taps with both real and imaginary parts.
- * OpenAirLink only uses the real part (imaginary is ignored).
+ * Matches the original pymt/Colosseum format exactly.
+ * Contains 4 sparse taps with delay positions.
  * 
- * Wire format: src_chan(2) + dst_chan(2) + coeff_real[41](82) + coeff_imag[41](82) = 168 bytes
+ * Wire format: src_chan(2) + dst_chan(2) + coeffs[4](16) + delays[4](8) = 28 bytes
+ * 
+ * Note: std::complex<uint16_t> is stored as [real, imag] = 4 bytes per coefficient.
+ * Delays are in 10ns units (0-4095 = 0-40.95µs).
  */
 struct col_filter_t {
     uint16_t src_chan;                              // Source channel ID
     uint16_t dst_chan;                              // Destination channel ID
-    uint16_t coeff_real[NUM_FIR_TAPS];              // Real part of coefficients (Q15)
-    uint16_t coeff_imag[NUM_FIR_TAPS];              // Imaginary part (ignored by OAL)
+    std::complex<uint16_t> coeffs[NUM_PDP_TAPS];    // Complex coefficient values (Q15 format)
+    uint16_t delays[NUM_PDP_TAPS];                  // Delay tap positions (10ns units)
 };
 
 /**
@@ -287,12 +290,14 @@ public:
 uint8_t get_message_type(const uint8_t* data, size_t size);
 
 /**
- * Extract FIR coefficients from PDP for OpenAirLink
- * @param pdp Power delay profile (contains 41 taps)
- * @param fir_coeffs Output FIR coefficients (41 taps)
+ * Convert PDP (4 sparse taps) to FIR coefficients (41 dense taps) for OpenAirLink
+ * @param pdp Power delay profile (4 taps with delay positions)
+ * @param fir_coeffs Output FIR coefficients (41 taps at 5ns spacing)
  * 
- * Simply extracts the real part of each coefficient.
- * The imaginary part is ignored (not supported by OAL).
+ * Maps the 4 sparse taps from the PDP to the 41-tap FIR filter:
+ * - Delays are in 10ns units, converted to 5ns tap indices (delay * 2)
+ * - Only the real part of coefficients is used (imaginary ignored)
+ * - Coefficients at same tap index are accumulated
  */
 void pdp_to_fir_coeffs(const col_filter_t& pdp, std::vector<int16_t>& fir_coeffs);
 
