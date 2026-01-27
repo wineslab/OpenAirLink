@@ -142,7 +142,7 @@ bool handle_mt001(const MT001_Message &msg, void *zmq_mt134_socket)
     response.radios = msg.radios;
 
     std::vector<uint8_t> response_data = response.encode();
-    zmq_send(zmq_mt134_socket, response_data.data(), response_data.size(), 0);
+    zmq_send(zmq_mt134_socket, response_data.data(), response_data.size(), ZMQ_DONTWAIT);
 
     std::cout << "[MT134] Config response sent (WILCO)" << std::endl;
     return true;
@@ -196,11 +196,15 @@ void status_thread_func(void *zmq_mt250_socket, int interval_ms)
         status.update(total_pdps_received.load(), scenario_set_count.load());
         status.header.message_counter = msg_counter++;
 
-        // Encode and send
+        // Encode and send (non-blocking to avoid hanging on shutdown)
         std::vector<uint8_t> status_data = status.encode();
-        zmq_send(zmq_mt250_socket, status_data.data(), status_data.size(), 0);
+        zmq_send(zmq_mt250_socket, status_data.data(), status_data.size(), ZMQ_DONTWAIT);
 
-        std::this_thread::sleep_for(std::chrono::milliseconds(interval_ms));
+        // Sleep in smaller chunks to allow faster shutdown
+        for (int i = 0; i < interval_ms / 100 && !stop_signal_called; i++)
+        {
+            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        }
     }
 }
 
@@ -259,9 +263,11 @@ int UHD_SAFE_MAIN(int argc, char *argv[])
     std::cout << "Initializing ZMQ sockets..." << std::endl;
 
     void *zmq_context = zmq_ctx_new();
+    int linger = 0; // Don't wait for pending messages on close
 
     // MT001 PULL socket (radio config)
     void *zmq_mt001_socket = zmq_socket(zmq_context, ZMQ_PULL);
+    zmq_setsockopt(zmq_mt001_socket, ZMQ_LINGER, &linger, sizeof(linger));
     if (zmq_bind(zmq_mt001_socket, zmq_mt001_addr.c_str()) != 0)
     {
         std::cerr << "Failed to bind MT001 socket to " << zmq_mt001_addr << std::endl;
@@ -271,6 +277,7 @@ int UHD_SAFE_MAIN(int argc, char *argv[])
 
     // MT010 PULL socket (PDP)
     void *zmq_mt010_socket = zmq_socket(zmq_context, ZMQ_PULL);
+    zmq_setsockopt(zmq_mt010_socket, ZMQ_LINGER, &linger, sizeof(linger));
     if (zmq_bind(zmq_mt010_socket, zmq_mt010_addr.c_str()) != 0)
     {
         std::cerr << "Failed to bind MT010 socket to " << zmq_mt010_addr << std::endl;
@@ -280,6 +287,7 @@ int UHD_SAFE_MAIN(int argc, char *argv[])
 
     // MT134 PUSH socket (config response)
     void *zmq_mt134_socket = zmq_socket(zmq_context, ZMQ_PUSH);
+    zmq_setsockopt(zmq_mt134_socket, ZMQ_LINGER, &linger, sizeof(linger));
     if (zmq_bind(zmq_mt134_socket, zmq_mt134_addr.c_str()) != 0)
     {
         std::cerr << "Failed to bind MT134 socket to " << zmq_mt134_addr << std::endl;
@@ -289,6 +297,7 @@ int UHD_SAFE_MAIN(int argc, char *argv[])
 
     // MT250 PUSH socket (status)
     void *zmq_mt250_socket = zmq_socket(zmq_context, ZMQ_PUSH);
+    zmq_setsockopt(zmq_mt250_socket, ZMQ_LINGER, &linger, sizeof(linger));
     if (zmq_bind(zmq_mt250_socket, zmq_mt250_addr.c_str()) != 0)
     {
         std::cerr << "Failed to bind MT250 socket to " << zmq_mt250_addr << std::endl;
