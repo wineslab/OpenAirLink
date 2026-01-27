@@ -263,7 +263,7 @@ namespace rfnoc
                 // Decode common header
                 size_t offset = 0;
                 copy_from_buffer(&header, data, sizeof(common_header_t), offset);
-                
+
                 BOOST_LOG_TRIVIAL(trace) << "[MT010] Header: type=" << static_cast<int>(header.message_type)
                                          << " src=" << static_cast<int>(header.src)
                                          << " dst=" << static_cast<int>(header.dst)
@@ -273,7 +273,7 @@ namespace rfnoc
 
                 // Decode MT010 header
                 copy_from_buffer(&body, data, sizeof(mt010_header_t), offset);
-                
+
                 BOOST_LOG_TRIVIAL(trace) << "[MT010] Body: tap_app_seconds=" << body.tap_app_seconds
                                          << " num_channels=" << body.num_channels_per_packet
                                          << " packets_per_update=" << static_cast<int>(body.packets_per_update)
@@ -298,15 +298,14 @@ namespace rfnoc
                     copy_from_buffer(&pdps[i], data, sizeof(col_filter_t), offset);
                 }
 
-                
-
                 for (const auto &pdp : pdps)
                 {
                     BOOST_LOG_TRIVIAL(trace) << "[MT010] PDP: src=" << pdp.src_chan
                                              << " dst=" << pdp.dst_chan
-                                             << " coeff_real[0]=" << static_cast<int16_t>(pdp.coeff_real[0])
-                                             << " coeff_real[1]=" << static_cast<int16_t>(pdp.coeff_real[1])
-                                             << " coeff_real[2]=" << static_cast<int16_t>(pdp.coeff_real[2]);
+                                             << " coeff[0]=" << pdp.coeffs[0].real() << "+" << pdp.coeffs[0].imag() << "j"
+                                             << " delay[0]=" << pdp.delays[0]
+                                             << " coeff[1]=" << pdp.coeffs[1].real() << "+" << pdp.coeffs[1].imag() << "j"
+                                             << " delay[1]=" << pdp.delays[1];
                 }
 
                 return true;
