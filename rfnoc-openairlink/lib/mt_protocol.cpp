@@ -16,6 +16,7 @@
 #include <rfnoc/openairlink/mt_protocol.hpp>
 #include <algorithm>
 #include <chrono>
+#include <boost/log/trivial.hpp>
 
 namespace rfnoc
 {
@@ -130,12 +131,16 @@ namespace rfnoc
             {
                 if (data == nullptr || size < COMMON_HEADER_SIZE + sizeof(mt001_header_t))
                 {
+                    BOOST_LOG_TRIVIAL(warning) << "[MT001] Decode failed: size=" << size
+                                               << " < minimum=" << (COMMON_HEADER_SIZE + sizeof(mt001_header_t));
                     return false;
                 }
 
                 // Check message type
                 if (data[0] != recv_message::radio_config)
                 {
+                    BOOST_LOG_TRIVIAL(warning) << "[MT001] Decode failed: unexpected message type="
+                                               << static_cast<int>(data[0]);
                     return false;
                 }
 
@@ -151,6 +156,9 @@ namespace rfnoc
                                        body.num_radios * sizeof(radio_data_t);
                 if (size < expected_size)
                 {
+                    BOOST_LOG_TRIVIAL(warning) << "[MT001] Decode failed: size=" << size
+                                               << " < expected=" << expected_size
+                                               << " (num_radios=" << static_cast<int>(body.num_radios) << ")";
                     return false;
                 }
 
@@ -160,6 +168,23 @@ namespace rfnoc
                 for (size_t i = 0; i < body.num_radios; i++)
                 {
                     copy_from_buffer(&radios[i], data, sizeof(radio_data_t), offset);
+                }
+
+                BOOST_LOG_TRIVIAL(trace) << "[MT001] Header: type=" << static_cast<int>(header.message_type)
+                                         << " src=" << static_cast<int>(header.src)
+                                         << " dst=" << static_cast<int>(header.dst)
+                                         << " total_size=" << header.total_size
+                                         << " seconds=" << header.seconds
+                                         << " msg_counter=" << header.message_counter;
+                BOOST_LOG_TRIVIAL(trace) << "[MT001] Body: num_radios=" << static_cast<int>(body.num_radios)
+                                         << " reservation_id=" << body.reservation_id;
+                for (const auto &radio : radios)
+                {
+                    BOOST_LOG_TRIVIAL(trace) << "[MT001] Radio: id=" << static_cast<int>(radio.radio_id)
+                                             << " rx_gain=" << static_cast<int>(radio.rx_channel_gain)
+                                             << " tx_gain=" << static_cast<int>(radio.tx_channel_gain)
+                                             << " rx_freq_mhz=" << radio.rx_center_freq
+                                             << " tx_freq_mhz=" << radio.tx_center_freq;
                 }
 
                 return true;
@@ -185,27 +210,46 @@ namespace rfnoc
             {
                 if (data == nullptr || size < COMMON_HEADER_SIZE + sizeof(mt010_header_t))
                 {
+                    BOOST_LOG_TRIVIAL(warning) << "[MT010] Decode failed: size=" << size
+                                               << " < minimum=" << (COMMON_HEADER_SIZE + sizeof(mt010_header_t));
                     return false;
                 }
 
                 // Check message type
                 if (data[0] != recv_message::coeff_matrix_req)
                 {
+                    BOOST_LOG_TRIVIAL(warning) << "[MT010] Decode failed: unexpected message type="
+                                               << static_cast<int>(data[0]);
                     return false;
                 }
 
                 // Decode common header
                 size_t offset = 0;
                 copy_from_buffer(&header, data, sizeof(common_header_t), offset);
+                
+                BOOST_LOG_TRIVIAL(trace) << "[MT010] Header: type=" << static_cast<int>(header.message_type)
+                                         << " src=" << static_cast<int>(header.src)
+                                         << " dst=" << static_cast<int>(header.dst)
+                                         << " total_size=" << header.total_size
+                                         << " seconds=" << header.seconds
+                                         << " msg_counter=" << header.message_counter;
 
                 // Decode MT010 header
                 copy_from_buffer(&body, data, sizeof(mt010_header_t), offset);
+                
+                BOOST_LOG_TRIVIAL(trace) << "[MT010] Body: tap_app_seconds=" << body.tap_app_seconds
+                                         << " num_channels=" << body.num_channels_per_packet
+                                         << " packets_per_update=" << static_cast<int>(body.packets_per_update)
+                                         << " scenario_set_count=" << body.scenario_set_count;
 
                 // Validate size
                 size_t expected_size = COMMON_HEADER_SIZE + sizeof(mt010_header_t) +
                                        body.num_channels_per_packet * sizeof(col_filter_t);
                 if (size < expected_size)
                 {
+                    BOOST_LOG_TRIVIAL(warning) << "[MT010] Decode failed: size=" << size
+                                               << " < expected=" << expected_size
+                                               << " (channels=" << body.num_channels_per_packet << ")";
                     return false;
                 }
 
@@ -215,6 +259,17 @@ namespace rfnoc
                 for (size_t i = 0; i < body.num_channels_per_packet; i++)
                 {
                     copy_from_buffer(&pdps[i], data, sizeof(col_filter_t), offset);
+                }
+
+                
+
+                for (const auto &pdp : pdps)
+                {
+                    BOOST_LOG_TRIVIAL(trace) << "[MT010] PDP: src=" << pdp.src_chan
+                                             << " dst=" << pdp.dst_chan
+                                             << " coeff_real[0]=" << static_cast<int16_t>(pdp.coeff_real[0])
+                                             << " coeff_real[1]=" << static_cast<int16_t>(pdp.coeff_real[1])
+                                             << " coeff_real[2]=" << static_cast<int16_t>(pdp.coeff_real[2]);
                 }
 
                 return true;

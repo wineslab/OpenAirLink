@@ -33,6 +33,14 @@ endif()
 ########################################################################
 # Setup the include and linker paths
 ########################################################################
+set(BOOST_REQUIRED_COMPONENTS
+    log
+    log_setup
+    thread
+    system
+)
+find_package(Boost 1.65 REQUIRED ${BOOST_REQUIRED_COMPONENTS})
+
 include_directories(
     ${CMAKE_SOURCE_DIR}/lib
     ${CMAKE_SOURCE_DIR}/include
