@@ -17,6 +17,9 @@
 set(BOOST_REQUIRED_COMPONENTS
     program_options
     system
+    log
+    log_setup
+    thread
 )
 if(MSVC)
     set(BOOST_ALL_DYN_LINK "${BOOST_ALL_DYN_LINK}" CACHE BOOL "boost enable dynamic linking")

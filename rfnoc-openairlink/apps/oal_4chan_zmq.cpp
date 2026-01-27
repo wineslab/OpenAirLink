@@ -38,10 +38,17 @@
 #include <rfnoc/openairlink/oal_common.hpp>
 #include <rfnoc/openairlink/mt_protocol.hpp>
 #include <uhd/utils/safe_main.hpp>
+#include <boost/log/core.hpp>
+#include <boost/log/expressions.hpp>
+#include <boost/log/trivial.hpp>
+#include <boost/log/utility/setup/common_attributes.hpp>
+#include <boost/log/utility/setup/console.hpp>
 #include <boost/program_options.hpp>
 #include <zmq.h>
 #include <chrono>
 #include <csignal>
+#include <algorithm>
+#include <cctype>
 #include <iostream>
 #include <thread>
 #include <atomic>
@@ -79,6 +86,38 @@ void print_channel_status_zmq(const EmulatorContext &ctx)
 {
     print_channel_status(ctx);
     std::cout << boost::format("Total PDPs received: %lu, Scenario set count: %lu") % total_pdps_received.load() % scenario_set_count.load() << std::endl;
+}
+
+/****************************************************************************
+ * Logging
+ ***************************************************************************/
+static boost::log::trivial::severity_level parse_log_level(const std::string &level)
+{
+    std::string lower = level;
+    std::transform(lower.begin(), lower.end(), lower.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+
+    if (lower == "trace")
+        return boost::log::trivial::trace;
+    if (lower == "debug")
+        return boost::log::trivial::debug;
+    if (lower == "info")
+        return boost::log::trivial::info;
+    if (lower == "warning" || lower == "warn")
+        return boost::log::trivial::warning;
+    if (lower == "error")
+        return boost::log::trivial::error;
+    if (lower == "fatal")
+        return boost::log::trivial::fatal;
+
+    std::cerr << "Unknown log level '" << level << "', defaulting to info." << std::endl;
+    return boost::log::trivial::info;
+}
+
+static void init_logging(const std::string &level)
+{
+    boost::log::add_console_log(std::clog, boost::log::keywords::format = "[%TimeStamp%] [%Severity%] %Message%");
+    boost::log::add_common_attributes();
+    boost::log::core::get()->set_filter(boost::log::trivial::severity >= parse_log_level(level));
 }
 
 /****************************************************************************
@@ -156,7 +195,7 @@ bool handle_mt010(const MT010_Message &msg)
     // Update counters
     total_pdps_received += msg.body.num_channels_per_packet;
     scenario_set_count = msg.body.scenario_set_count;
-
+    
     std::lock_guard<std::mutex> lock(ctx_mutex);
 
     // Process each PDP in the message
@@ -219,10 +258,12 @@ int UHD_SAFE_MAIN(int argc, char *argv[])
     std::string zmq_mt001_addr, zmq_mt010_addr, zmq_mt134_addr, zmq_mt250_addr;
     int status_interval_ms;
     double print_interval;
+    std::string log_level;
 
     // Setup program options
     po::options_description desc("Allowed options");
-    desc.add_options()("help", "help message")("args", po::value<std::string>(&args)->default_value(""), "UHD device address args")("gnb-freq", po::value<double>(&gnb_freq)->default_value(3619.2e6), "gNB RF center frequency in Hz")("ue-freq", po::value<double>(&ue_freq)->default_value(3619.2e6), "UE RF center frequency in Hz")("rx-bw", po::value<double>(&rx_bw)->default_value(100e6), "RX analog frontend filter bandwidth in Hz")("tx-bw", po::value<double>(&tx_bw)->default_value(100e6), "TX analog frontend filter bandwidth in Hz")("zmq-mt001", po::value<std::string>(&zmq_mt001_addr)->default_value("tcp://0.0.0.0:5001"),
+    desc.add_options()("help", "help message")("args", po::value<std::string>(&args)->default_value(""), "UHD device address args")("gnb-freq", po::value<double>(&gnb_freq)->default_value(3619.2e6), "gNB RF center frequency in Hz")("ue-freq", po::value<double>(&ue_freq)->default_value(3619.2e6), "UE RF center frequency in Hz")("rx-bw", po::value<double>(&rx_bw)->default_value(100e6), "RX analog frontend filter bandwidth in Hz")("tx-bw", po::value<double>(&tx_bw)->default_value(100e6), "TX analog frontend filter bandwidth in Hz")("log-level", po::value<std::string>(&log_level)->default_value("info"),
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                "Log level (trace, debug, info, warning, error, fatal)")("zmq-mt001", po::value<std::string>(&zmq_mt001_addr)->default_value("tcp://0.0.0.0:5001"),
                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        "ZMQ PULL address for MT001 messages")("zmq-mt010", po::value<std::string>(&zmq_mt010_addr)->default_value("tcp://0.0.0.0:5002"),
                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               "ZMQ PULL address for MT010 messages")("zmq-mt134", po::value<std::string>(&zmq_mt134_addr)->default_value("tcp://0.0.0.0:6004"),
                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      "ZMQ PUSH address for MT134 responses")("zmq-mt250", po::value<std::string>(&zmq_mt250_addr)->default_value("tcp://0.0.0.0:6005"),
@@ -256,6 +297,8 @@ int UHD_SAFE_MAIN(int argc, char *argv[])
             << std::endl;
         return ~0;
     }
+
+    init_logging(log_level);
 
     /************************************************************************
      * Initialize ZMQ
@@ -411,7 +454,7 @@ int UHD_SAFE_MAIN(int argc, char *argv[])
                 }
                 else
                 {
-                    std::cerr << "Failed to decode MT010 message" << std::endl;
+                    BOOST_LOG_TRIVIAL(error) << "Failed to decode MT010 message (" << nbytes << " bytes)";
                 }
             }
         }
