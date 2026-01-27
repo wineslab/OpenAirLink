@@ -94,7 +94,8 @@ void print_channel_status_zmq(const EmulatorContext &ctx)
 static boost::log::trivial::severity_level parse_log_level(const std::string &level)
 {
     std::string lower = level;
-    std::transform(lower.begin(), lower.end(), lower.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    std::transform(lower.begin(), lower.end(), lower.begin(), [](unsigned char c)
+                   { return static_cast<char>(std::tolower(c)); });
 
     if (lower == "trace")
         return boost::log::trivial::trace;
@@ -195,7 +196,7 @@ bool handle_mt010(const MT010_Message &msg)
     // Update counters
     total_pdps_received += msg.body.num_channels_per_packet;
     scenario_set_count = msg.body.scenario_set_count;
-    
+
     std::lock_guard<std::mutex> lock(ctx_mutex);
 
     // Process each PDP in the message
@@ -263,13 +264,13 @@ int UHD_SAFE_MAIN(int argc, char *argv[])
     // Setup program options
     po::options_description desc("Allowed options");
     desc.add_options()("help", "help message")("args", po::value<std::string>(&args)->default_value(""), "UHD device address args")("gnb-freq", po::value<double>(&gnb_freq)->default_value(3619.2e6), "gNB RF center frequency in Hz")("ue-freq", po::value<double>(&ue_freq)->default_value(3619.2e6), "UE RF center frequency in Hz")("rx-bw", po::value<double>(&rx_bw)->default_value(100e6), "RX analog frontend filter bandwidth in Hz")("tx-bw", po::value<double>(&tx_bw)->default_value(100e6), "TX analog frontend filter bandwidth in Hz")("log-level", po::value<std::string>(&log_level)->default_value("info"),
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                "Log level (trace, debug, info, warning, error, fatal)")("zmq-mt001", po::value<std::string>(&zmq_mt001_addr)->default_value("tcp://0.0.0.0:5001"),
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       "ZMQ PULL address for MT001 messages")("zmq-mt010", po::value<std::string>(&zmq_mt010_addr)->default_value("tcp://0.0.0.0:5002"),
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              "ZMQ PULL address for MT010 messages")("zmq-mt134", po::value<std::string>(&zmq_mt134_addr)->default_value("tcp://0.0.0.0:6004"),
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     "ZMQ PUSH address for MT134 responses")("zmq-mt250", po::value<std::string>(&zmq_mt250_addr)->default_value("tcp://0.0.0.0:6005"),
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             "ZMQ PUSH address for MT250 status")("status-interval", po::value<int>(&status_interval_ms)->default_value(1000),
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  "MT250 status broadcast interval in ms")("print-interval", po::value<double>(&print_interval)->default_value(5.0),
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           "Channel status print interval in seconds");
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       "Log level (trace, debug, info, warning, error, fatal)")("zmq-mt001", po::value<std::string>(&zmq_mt001_addr)->default_value("tcp://0.0.0.0:5001"),
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                "ZMQ PULL address for MT001 messages")("zmq-mt010", po::value<std::string>(&zmq_mt010_addr)->default_value("tcp://0.0.0.0:5002"),
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       "ZMQ PULL address for MT010 messages")("zmq-mt134", po::value<std::string>(&zmq_mt134_addr)->default_value("tcp://0.0.0.0:6004"),
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              "ZMQ PUSH address for MT134 responses")("zmq-mt250", po::value<std::string>(&zmq_mt250_addr)->default_value("tcp://0.0.0.0:6005"),
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      "ZMQ PUSH address for MT250 status")("status-interval", po::value<int>(&status_interval_ms)->default_value(1000),
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           "MT250 status broadcast interval in ms")("print-interval", po::value<double>(&print_interval)->default_value(5.0),
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    "Channel status print interval in seconds");
 
     po::variables_map vm;
     po::store(po::parse_command_line(argc, argv, desc), vm);
@@ -411,8 +412,8 @@ int UHD_SAFE_MAIN(int argc, char *argv[])
 
     while (!stop_signal_called)
     {
-        // Poll for messages with 100ms timeout
-        int rc = zmq_poll(poll_items, 2, 100);
+        // Poll for messages with 1ms timeout (low latency for real-time PDP updates)
+        int rc = zmq_poll(poll_items, 2, 1);
 
         if (rc < 0)
         {
@@ -440,22 +441,24 @@ int UHD_SAFE_MAIN(int argc, char *argv[])
             }
         }
 
-        // Check MT010 socket
-        if (poll_items[1].revents & ZMQ_POLLIN)
+        // Check MT010 socket - drain all queued messages for low latency
+        while (poll_items[1].revents & ZMQ_POLLIN)
         {
-            int nbytes = zmq_recv(zmq_mt010_socket, recv_buffer.data(), recv_buffer.size(), 0);
-            if (nbytes > 0)
+            int nbytes = zmq_recv(zmq_mt010_socket, recv_buffer.data(), recv_buffer.size(), ZMQ_DONTWAIT);
+            if (nbytes <= 0)
             {
-                MT010_Message mt010;
-                if (mt010.decode(recv_buffer.data(), nbytes))
-                {
-                    handle_mt010(mt010);
-                    mt010_count++;
-                }
-                else
-                {
-                    BOOST_LOG_TRIVIAL(error) << "Failed to decode MT010 message (" << nbytes << " bytes)";
-                }
+                break; // No more messages queued
+            }
+
+            MT010_Message mt010;
+            if (mt010.decode(recv_buffer.data(), nbytes))
+            {
+                handle_mt010(mt010);
+                mt010_count++;
+            }
+            else
+            {
+                BOOST_LOG_TRIVIAL(error) << "Failed to decode MT010 message (" << nbytes << " bytes)";
             }
         }
 
