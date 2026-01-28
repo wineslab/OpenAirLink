@@ -272,7 +272,7 @@ namespace rfnoc
                 shift_val = ctx.shift_dl[i]->get_shiftright_value();
                 coeffs = ctx.fir_dl[i]->get_coefficients();
                 std::cout << boost::format("  DL%d (gNB->UE%d): shift=%2d, FIR=") % i % (i + 1) % shift_val;
-                for (size_t j = 0; j < std::min(coeffs.size(), size_t(5)); j++)
+                for (size_t j = 0; j < std::min(coeffs.size(), size_t(NUM_FIR_TAPS)); j++)
                 {
                     std::cout << coeffs[j] << " ";
                 }
@@ -287,7 +287,7 @@ namespace rfnoc
                 shift_val = ctx.shift_ul[i]->get_shiftright_value();
                 coeffs = ctx.fir_ul[i]->get_coefficients();
                 std::cout << boost::format("  UL%d (UE%d->gNB): shift=%2d, FIR=") % i % (i + 1) % shift_val;
-                for (size_t j = 0; j < std::min(coeffs.size(), size_t(5)); j++)
+                for (size_t j = 0; j < std::min(coeffs.size(), size_t(NUM_FIR_TAPS)); j++)
                 {
                     std::cout << coeffs[j] << " ";
                 }
