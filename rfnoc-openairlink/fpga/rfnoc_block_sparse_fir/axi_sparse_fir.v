@@ -75,7 +75,6 @@ module axi_sparse_fir #(
   localparam MULT_W     = IN_WIDTH + COEFF_WIDTH;     // Full product width
   // Accumulator needs room for summing NUM_TAPS products
   localparam ACCUM_W    = MULT_W + $clog2(NUM_TAPS);
-  localparam CLIP_BITS  = $clog2(NUM_TAPS);
 
   // Pipeline depth: BRAM read (1) + multiply (1) + adder tree (1) + output reg (1) = 4
   localparam PIPELINE_DELAY = 4;
@@ -118,6 +117,13 @@ module axi_sparse_fir #(
       (* ram_style = "block" *)
       reg [IN_WIDTH-1:0] delay_mem [0:MAX_DELAY-1];
 
+      // Initialize BRAM to zero to prevent startup noise
+      integer m;
+      initial begin
+        for (m = 0; m < MAX_DELAY; m = m + 1)
+          delay_mem[m] = {IN_WIDTH{1'b0}};
+      end
+
       reg [IN_WIDTH-1:0] rd_data;
 
       // Write port: write new sample on valid strobe
@@ -134,7 +140,24 @@ module axi_sparse_fir #(
         end
       end
 
-      assign delayed_sample[t] = rd_data;
+      // Bypass: when reading the same address being written (delay=0),
+      // the BRAM read returns the OLD value (stale/zero). Detect the
+      // collision and forward the write data directly.
+      wire rd_wr_collision = (rd_addr == wr_ptr);
+      reg  rd_wr_collision_r;
+      reg  [IN_WIDTH-1:0] wr_data_r;
+
+      always @(posedge clk) begin
+        if (rst) begin
+          rd_wr_collision_r <= 1'b0;
+          wr_data_r         <= {IN_WIDTH{1'b0}};
+        end else if (sample_stb) begin
+          rd_wr_collision_r <= rd_wr_collision;
+          wr_data_r         <= s_axis_tdata;
+        end
+      end
+
+      assign delayed_sample[t] = rd_wr_collision_r ? wr_data_r : rd_data;
 
     end
   endgenerate
@@ -212,47 +235,52 @@ module axi_sparse_fir #(
   end
 
   // -----------------------------------------------------------------------
-  // Output: round and clip from ACCUM_W down to OUT_WIDTH
+  // Output: normalize fixed-point product, round, and clip to OUT_WIDTH
   // -----------------------------------------------------------------------
   //
-  // Simple approach: take the relevant bits with saturation.
-  // The accumulator has CLIP_BITS extra MSBs from summation growth.
-  // We want to extract bits [ACCUM_W - CLIP_BITS - 1 : ACCUM_W - CLIP_BITS - OUT_WIDTH]
+  // Coefficients are in Q1.(COEFF_WIDTH-1) format, e.g. Q1.15 for 16-bit.
+  // The multiply produces a result with (COEFF_WIDTH-1) fractional bits.
+  // We right-shift by (COEFF_WIDTH-1) to normalize back to integer range,
+  // with convergent rounding, then saturate into OUT_WIDTH bits.
   //
-  // Using the same round_and_clip approach as the original FIR:
-  //   Drop CLIP_BITS MSBs (growth from tap summation)
-  //   Then take OUT_WIDTH MSBs from what's left
-  //   Saturate if overflow
+  // ACCUM_W = IN_WIDTH + COEFF_WIDTH + $clog2(NUM_TAPS)
+  // After right-shift by (COEFF_WIDTH-1), effective width is:
+  //   NORM_W = ACCUM_W - (COEFF_WIDTH-1) = IN_WIDTH + 1 + $clog2(NUM_TAPS)
+  // For defaults: 16 + 1 + 2 = 19 bits, which must be clipped to OUT_WIDTH=16.
 
   wire signed [ACCUM_W-1:0] raw_out = sum_stage2;
   wire out_valid = valid_sr[PIPELINE_DELAY-1];
   wire out_tlast = tlast_sr[PIPELINE_DELAY-1];
 
-  // Saturation check: after removing CLIP_BITS, check if remaining value
-  // fits in OUT_WIDTH bits
-  localparam TRUNC_W = ACCUM_W - CLIP_BITS;  // Width after removing growth bits
+  // Fixed-point normalization: discard (COEFF_WIDTH-1) fractional LSBs
+  localparam ROUND_BITS = COEFF_WIDTH - 1;             // Bits to shift out
+  localparam NORM_W     = ACCUM_W - ROUND_BITS;        // Width after normalization
 
-  wire signed [TRUNC_W-1:0] truncated = raw_out[ACCUM_W-1 -: TRUNC_W];
+  // Rounding: add 0.5 ULP of the bits being discarded
+  wire signed [ACCUM_W-1:0] rounded = raw_out + (1 <<< (ROUND_BITS - 1));
 
-  // Check for overflow/underflow: the top (TRUNC_W - OUT_WIDTH) bits
-  // should all be sign extensions of bit [OUT_WIDTH-1]
+  // Extract normalized result (upper NORM_W bits after rounding)
+  wire signed [NORM_W-1:0] normalized = rounded[ACCUM_W-1 -: NORM_W];
+
+  // Saturate to OUT_WIDTH bits
   wire overflow;
   wire signed [OUT_WIDTH-1:0] clipped;
 
   generate
-    if (TRUNC_W > OUT_WIDTH) begin : gen_clip
-      // Check if upper bits are all-same as sign of the OUT_WIDTH result
-      wire [TRUNC_W-OUT_WIDTH:0] sign_bits = truncated[TRUNC_W-1 -: (TRUNC_W-OUT_WIDTH+1)];
-      assign overflow = (sign_bits != {(TRUNC_W-OUT_WIDTH+1){sign_bits[TRUNC_W-OUT_WIDTH]}});
+    if (NORM_W > OUT_WIDTH) begin : gen_clip
+      // Check if the upper (NORM_W - OUT_WIDTH) bits + sign of OUT_WIDTH result
+      // are all the same (sign extension). If not, we have overflow.
+      wire [NORM_W-OUT_WIDTH:0] sign_bits = normalized[NORM_W-1 -: (NORM_W-OUT_WIDTH+1)];
+      assign overflow = (sign_bits != {(NORM_W-OUT_WIDTH+1){sign_bits[NORM_W-OUT_WIDTH]}});
 
       // Saturate on overflow
       assign clipped = overflow ?
-        (truncated[TRUNC_W-1] ? {1'b1, {(OUT_WIDTH-1){1'b0}}} :   // Negative saturate
+        (normalized[NORM_W-1] ? {1'b1, {(OUT_WIDTH-1){1'b0}}} :   // Negative saturate
                                 {1'b0, {(OUT_WIDTH-1){1'b1}}}) :   // Positive saturate
-        truncated[OUT_WIDTH-1:0];
+        normalized[OUT_WIDTH-1:0];
     end else begin : gen_no_clip
       assign overflow = 1'b0;
-      assign clipped  = truncated[OUT_WIDTH-1:0];
+      assign clipped  = normalized[OUT_WIDTH-1:0];
     end
   endgenerate
 
