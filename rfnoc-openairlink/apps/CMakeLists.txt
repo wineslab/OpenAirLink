@@ -78,3 +78,15 @@ target_link_libraries(oal_4chan
 )
 
 target_compile_definitions(oal_4chan PRIVATE CMAKE_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
+
+add_executable(oal_4chan_sparse
+oal_4chan_sparse.cpp
+)
+target_link_libraries(oal_4chan_sparse
+    ${UHD_LIBRARIES}
+    ${Boost_LIBRARIES}
+    -Wl,--no-as-needed
+    rfnoc-openairlink
+)
+
+target_compile_definitions(oal_4chan_sparse PRIVATE CMAKE_SOURCE_DIR="${CMAKE_SOURCE_DIR}")

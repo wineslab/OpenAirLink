@@ -13,5 +13,4 @@
 # If not, see <https://www.gnu.org/licenses/>.
 ##############################################################################################
 
-RFNOC_REGISTER_IMAGE_CORE(SRC x410_rfnoc_image_core_4chan.yml)
-RFNOC_REGISTER_IMAGE_CORE(SRC x410_rfnoc_image_core_4chan_sparse.yml)
+RFNOC_REGISTER_BLOCK_DIR(NOTESTBENCH)

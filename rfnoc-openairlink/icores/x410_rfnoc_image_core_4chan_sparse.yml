@@ -1,0 +1,289 @@
+# General parameters
+# -----------------------------------------
+# 1 gNB + 3 UE Bidirectional Channel Emulator Configuration (Sparse FIR)
+#
+# This image core replaces the dense FIR filters with sparse FIR filters.
+# Each sparse FIR has NUM_TAPS=4 programmable taps with arbitrary delay
+# offsets into a MAX_DELAY=1024 sample deep BRAM delay line.
+#
+# Resource comparison (per FIR block, I+Q):
+#   Dense FIR (41 taps):  82 DSP48, 0 BRAM
+#   Sparse FIR (4 taps):   8 DSP48, 8 BRAM18
+#   Total savings:        444 DSP48 across 6 blocks
+#
+# Delay spread coverage:
+#   Dense FIR:  41 taps × 5ns = 205 ns (~60m)
+#   Sparse FIR: 1024 samples × 5ns = 5.12 us (~1.5km)
+#
+# IMPORTANT (X410 BSP constraint): UHD's X410 BSP exposes two radio interfaces
+# (_device_.radio0 and _device_.radio1) and their ctrlports. Each radio block
+# can be configured with NUM_PORTS=2, yielding 4 RF ports total.
+#
+# Topology (4 RF ports using 2 radio blocks):
+#   gNB  <---> radio0 port 0 (RX: gNB TX, TX: combined UL to gNB)
+#   UE1  <---> radio0 port 1 (RX: UE1 TX, TX: DL to UE1)
+#   UE2  <---> radio1 port 0 (RX: UE2 TX, TX: DL to UE2)
+#   UE3  <---> radio1 port 1 (RX: UE3 TX, TX: DL to UE3)
+#
+# Signal Flow:
+#   DOWNLINK: radio0_RX0 -> SPLIT -> SparseFIR -> shift -> (radio0_TX1, radio1_TX0, radio1_TX1)
+#   UPLINK:   (radio0_RX1, radio1_RX0, radio1_RX1) -> SparseFIR -> shift -> ADDER -> radio0_TX0
+
+
+########################################################################
+# SPLIT (1→3):  split0 ──┬── out_0 (direct to UE1)
+#                        └── out_1 ──► split1 ──┬── out_0 (to UE2)
+#                                               └── out_1 (to UE3)
+
+# ADD (3→1):    UE1 ──┐
+#                     ├──► addsub0 ──┐
+#               UE2 ──┘              ├──► addsub1 ──► gNB
+#               UE3 ─────────────────┘
+########################################################################
+
+
+schema: rfnoc_imagebuilder_args
+copyright: >-
+  Ettus Research, A National Instruments Brand
+license: >-
+  SPDX-License-Identifier: LGPL-3.0-or-later
+version: '1.0'
+image_core_name: usrp_x410_fpga_OAL_SPARSE
+chdr_width: 64
+device: 'x410'
+default_target: 'X410'
+
+parameters:
+  RF_BW: 200
+  ENABLE_DRAM: True
+  NUM_DRAM_BANKS: 1
+  NUM_DRAM_CHANS: 4
+  DRAM_WIDTH: 64
+
+# A list of all stream endpoints in design
+# ----------------------------------------
+stream_endpoints:
+  ep0:
+    ctrl: True
+    data: True
+    buff_size_bytes: 262144
+  ep1:
+    ctrl: False
+    data: True
+    buff_size_bytes: 262144
+  ep2:
+    ctrl: False
+    data: True
+    buff_size_bytes: 262144
+  ep3:
+    ctrl: False
+    data: True
+    buff_size_bytes: 262144
+  ep4:
+    ctrl: False
+    data: True
+    buff_size_bytes: 262144
+  ep5:
+    ctrl: False
+    data: True
+    buff_size_bytes: 262144
+  ep6:
+    ctrl: False
+    data: True
+    buff_size_bytes: 262144
+  ep7:
+    ctrl: False
+    data: True
+    buff_size_bytes: 262144
+
+# A list of all transport adapters in design
+# ------------------------------------------
+transport_adapters:
+  dma:
+    block_desc: 'chdr_dma.yml'
+  eth_qsfp0:
+    block_desc: 'x4xx_eth.yml'
+    parameters:
+      port_type0: 2  # 10 GbE lane 0
+      port_type1: 2  # 10 GbE lane 1
+      port_type2: 2  # 10 GbE lane 2
+      port_type3: 2  # 10 GbE lane 3
+      qsfp_num: 0
+
+# A list of all NoC blocks in design
+# ----------------------------------
+noc_blocks:
+  # ============================================
+  # RADIOS (2 radios, 2 ports each = 4 RF ports)
+  # ============================================
+  radio0:  # gNB (port 0) + UE1 (port 1)
+    block_desc: 'radio.yml'
+    parameters:
+      NUM_PORTS: 2
+      NIPC: RADIO_NIPC
+    ctrl_clock: _device_.rfnoc_ctrl
+    timebase_clock: _device_.radio
+  radio1:  # UE2 (port 0) + UE3 (port 1)
+    block_desc: 'radio.yml'
+    parameters:
+      NUM_PORTS: 2
+      NIPC: RADIO_NIPC
+    ctrl_clock: _device_.rfnoc_ctrl
+    timebase_clock: _device_.radio
+
+  # ============================================
+  # DOWNLINK PATH: gNB TX -> 3 UE RX
+  # ============================================
+  split0:
+    block_desc: 'split_stream.yml'
+    parameters:
+      NUM_PORTS: 1
+      NUM_BRANCHES: 2
+  split1:
+    block_desc: 'split_stream.yml'
+    parameters:
+      NUM_PORTS: 1
+      NUM_BRANCHES: 2
+
+  # Downlink sparse channel emulation (one per UE)
+  sfir_dl0:
+    block_desc: 'sparse_fir.yml'
+    parameters:
+      NUM_TAPS: 4
+      MAX_DELAY: 1024
+      COEFF_WIDTH: 16
+  sfir_dl1:
+    block_desc: 'sparse_fir.yml'
+    parameters:
+      NUM_TAPS: 4
+      MAX_DELAY: 1024
+      COEFF_WIDTH: 16
+  sfir_dl2:
+    block_desc: 'sparse_fir.yml'
+    parameters:
+      NUM_TAPS: 4
+      MAX_DELAY: 1024
+      COEFF_WIDTH: 16
+
+  shift_dl0:
+    block_desc: 'shiftright.yml'
+  shift_dl1:
+    block_desc: 'shiftright.yml'
+  shift_dl2:
+    block_desc: 'shiftright.yml'
+
+  # ============================================
+  # UPLINK PATH: 3 UE TX -> gNB RX
+  # ============================================
+  sfir_ul0:
+    block_desc: 'sparse_fir.yml'
+    parameters:
+      NUM_TAPS: 4
+      MAX_DELAY: 1024
+      COEFF_WIDTH: 16
+  sfir_ul1:
+    block_desc: 'sparse_fir.yml'
+    parameters:
+      NUM_TAPS: 4
+      MAX_DELAY: 1024
+      COEFF_WIDTH: 16
+  sfir_ul2:
+    block_desc: 'sparse_fir.yml'
+    parameters:
+      NUM_TAPS: 4
+      MAX_DELAY: 1024
+      COEFF_WIDTH: 16
+
+  shift_ul0:
+    block_desc: 'shiftright.yml'
+  shift_ul1:
+    block_desc: 'shiftright.yml'
+  shift_ul2:
+    block_desc: 'shiftright.yml'
+
+  # AddSub cascade (same as before)
+  addsub0:
+    block_desc: 'addsub_patched.yml'
+  addsub1:
+    block_desc: 'addsub_patched.yml'
+
+# A list of all static connections in design
+# ------------------------------------------
+connections:
+  # ============================================
+  # DOWNLINK PATH: gNB -> UEs
+  # ============================================
+  - { srcblk: radio0,     srcport: out_0,  dstblk: split0,     dstport: in_0 }
+
+  - { srcblk: split0,     srcport: out_0,  dstblk: sfir_dl0,   dstport: in }
+  - { srcblk: split0,     srcport: out_1,  dstblk: split1,     dstport: in_0 }
+
+  - { srcblk: split1,     srcport: out_0,  dstblk: sfir_dl1,   dstport: in }
+  - { srcblk: split1,     srcport: out_1,  dstblk: sfir_dl2,   dstport: in }
+
+  - { srcblk: sfir_dl0,   srcport: out,    dstblk: shift_dl0,  dstport: in }
+  - { srcblk: sfir_dl1,   srcport: out,    dstblk: shift_dl1,  dstport: in }
+  - { srcblk: sfir_dl2,   srcport: out,    dstblk: shift_dl2,  dstport: in }
+
+  - { srcblk: shift_dl0,  srcport: out,    dstblk: radio0,     dstport: in_1 }  # UE1 DL
+  - { srcblk: shift_dl1,  srcport: out,    dstblk: radio1,     dstport: in_0 }  # UE2 DL
+  - { srcblk: shift_dl2,  srcport: out,    dstblk: radio1,     dstport: in_1 }  # UE3 DL
+
+  # ============================================
+  # UPLINK PATH: UEs -> gNB
+  # ============================================
+  - { srcblk: radio0,     srcport: out_1,  dstblk: sfir_ul0,   dstport: in }  # UE1 UL
+  - { srcblk: radio1,     srcport: out_0,  dstblk: sfir_ul1,   dstport: in }  # UE2 UL
+  - { srcblk: radio1,     srcport: out_1,  dstblk: sfir_ul2,   dstport: in }  # UE3 UL
+
+  - { srcblk: sfir_ul0,   srcport: out,    dstblk: shift_ul0,  dstport: in }
+  - { srcblk: sfir_ul1,   srcport: out,    dstblk: shift_ul1,  dstport: in }
+  - { srcblk: sfir_ul2,   srcport: out,    dstblk: shift_ul2,  dstport: in }
+
+  - { srcblk: shift_ul0,  srcport: out,    dstblk: addsub0,    dstport: in_a }
+  - { srcblk: shift_ul1,  srcport: out,    dstblk: addsub0,    dstport: in_b }
+
+  - { srcblk: addsub0,    srcport: add,    dstblk: addsub1,    dstport: in_a }
+  - { srcblk: shift_ul2,  srcport: out,    dstblk: addsub1,    dstport: in_b }
+
+  - { srcblk: addsub1,    srcport: add,    dstblk: radio0,     dstport: in_0 }
+
+  # ============================================
+  # BSP Connections
+  # ============================================
+  - { srcblk: radio0,   srcport: ctrlport, dstblk: _device_, dstport: ctrlport_radio0 }
+  - { srcblk: radio1,   srcport: ctrlport, dstblk: _device_, dstport: ctrlport_radio1 }
+  - { srcblk: _device_, srcport: radio0,   dstblk: radio0,   dstport: radio }
+  - { srcblk: _device_, srcport: radio1,   dstblk: radio1,   dstport: radio }
+  - { srcblk: _device_, srcport: time,     dstblk: radio0,   dstport: time }
+  - { srcblk: _device_, srcport: time,     dstblk: radio1,   dstport: time }
+
+  # Transport Adapter Connections
+  - { srcblk: dma,       srcport: chdr_dma_s, dstblk: _device_, dstport: chdr_dma_s }
+  - { srcblk: _device_,  srcport: chdr_dma_m, dstblk: dma,      dstport: chdr_dma_m }
+  - { srcblk: eth_qsfp0, srcport: qsfp,       dstblk: _device_, dstport: qsfp0 }
+
+# A list of all clock domain connections in design
+# ------------------------------------------------
+clk_domains:
+  # Radios
+  - { srcblk: _device_, srcport: radio, dstblk: radio0, dstport: radio }
+  - { srcblk: _device_, srcport: radio, dstblk: radio1, dstport: radio }
+
+  # Downlink processing
+  - { srcblk: _device_, srcport: ce, dstblk: sfir_dl0,   dstport: ce }
+  - { srcblk: _device_, srcport: ce, dstblk: sfir_dl1,   dstport: ce }
+  - { srcblk: _device_, srcport: ce, dstblk: sfir_dl2,   dstport: ce }
+  - { srcblk: _device_, srcport: ce, dstblk: shift_dl0,  dstport: ce }
+  - { srcblk: _device_, srcport: ce, dstblk: shift_dl1,  dstport: ce }
+  - { srcblk: _device_, srcport: ce, dstblk: shift_dl2,  dstport: ce }
+
+  # Uplink processing
+  - { srcblk: _device_, srcport: ce, dstblk: sfir_ul0,   dstport: ce }
+  - { srcblk: _device_, srcport: ce, dstblk: sfir_ul1,   dstport: ce }
+  - { srcblk: _device_, srcport: ce, dstblk: sfir_ul2,   dstport: ce }
+  - { srcblk: _device_, srcport: ce, dstblk: shift_ul0,  dstport: ce }
+  - { srcblk: _device_, srcport: ce, dstblk: shift_ul1,  dstport: ce }
+  - { srcblk: _device_, srcport: ce, dstblk: shift_ul2,  dstport: ce }
+  - { srcblk: _device_, srcport: ce, dstblk: addsub0,    dstport: ce }
+  - { srcblk: _device_, srcport: ce, dstblk: addsub1,    dstport: ce }

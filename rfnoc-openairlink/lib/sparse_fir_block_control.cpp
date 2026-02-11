@@ -1,0 +1,125 @@
+/**
+    This file is part of OpenAirLink.
+
+    OpenAirLink is free software: you can redistribute it and/or modify it under the terms of 
+    the GNU General Public License as published by the Free Software Foundation, either 
+    version 3 of the License, or (at your option) any later version.
+
+    OpenAirLink is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; 
+    without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. 
+    See the GNU General Public License for more details.
+
+    You should have received a copy of the GNU General Public License along with OpenAirLink.
+    If not, see <https://www.gnu.org/licenses/>.
+**/
+
+#include <rfnoc/openairlink/sparse_fir_block_control.hpp>
+
+#include <uhd/rfnoc/defaults.hpp>
+#include <uhd/rfnoc/registry.hpp>
+#include <uhd/exception.hpp>
+
+using namespace rfnoc::openairlink;
+using namespace uhd::rfnoc;
+
+// Register addresses (must match rfnoc_sparse_fir_regs.vh)
+const uint32_t sparse_fir_block_control::REG_COMPAT_NUM = 0x00;
+const uint32_t sparse_fir_block_control::REG_NUM_TAPS   = 0x04;
+const uint32_t sparse_fir_block_control::REG_MAX_DELAY  = 0x08;
+const uint32_t sparse_fir_block_control::REG_TAP_BASE   = 0x10;
+const uint32_t sparse_fir_block_control::REG_TAP_STRIDE = 0x08;
+
+class sparse_fir_block_control_impl : public sparse_fir_block_control
+{
+public:
+    RFNOC_BLOCK_CONSTRUCTOR(sparse_fir_block_control)
+    {
+        // Cache compile-time constants from FPGA
+        _num_taps  = regs().peek32(REG_NUM_TAPS);
+        _max_delay = regs().peek32(REG_MAX_DELAY);
+    }
+
+    uint32_t get_num_taps() override
+    {
+        return _num_taps;
+    }
+
+    uint32_t get_max_delay() override
+    {
+        return _max_delay;
+    }
+
+    void set_tap_delay(uint32_t tap_index, uint32_t delay) override
+    {
+        _check_tap_index(tap_index);
+        _check_delay(delay);
+        regs().poke32(REG_TAP_BASE + tap_index * REG_TAP_STRIDE + 0x00, delay);
+    }
+
+    uint32_t get_tap_delay(uint32_t tap_index) override
+    {
+        _check_tap_index(tap_index);
+        return regs().peek32(REG_TAP_BASE + tap_index * REG_TAP_STRIDE + 0x00);
+    }
+
+    void set_tap_coeff(uint32_t tap_index, int16_t coeff) override
+    {
+        _check_tap_index(tap_index);
+        // Sign-extend to 32-bit for poke, FPGA reads lower 16 bits
+        regs().poke32(REG_TAP_BASE + tap_index * REG_TAP_STRIDE + 0x04,
+                      static_cast<uint32_t>(static_cast<uint16_t>(coeff)));
+    }
+
+    int16_t get_tap_coeff(uint32_t tap_index) override
+    {
+        _check_tap_index(tap_index);
+        uint32_t raw = regs().peek32(REG_TAP_BASE + tap_index * REG_TAP_STRIDE + 0x04);
+        return static_cast<int16_t>(raw & 0xFFFF);
+    }
+
+    void set_tap(uint32_t tap_index, uint32_t delay, int16_t coeff) override
+    {
+        set_tap_delay(tap_index, delay);
+        set_tap_coeff(tap_index, coeff);
+    }
+
+    void set_all_taps(
+        const std::vector<uint32_t>& delays,
+        const std::vector<int16_t>& coeffs) override
+    {
+        if (delays.size() != _num_taps || coeffs.size() != _num_taps) {
+            throw uhd::value_error(
+                "set_all_taps: vectors must have exactly " +
+                std::to_string(_num_taps) + " elements");
+        }
+        for (uint32_t i = 0; i < _num_taps; i++) {
+            set_tap(i, delays[i], coeffs[i]);
+        }
+    }
+
+private:
+    uint32_t _num_taps;
+    uint32_t _max_delay;
+
+    void _check_tap_index(uint32_t idx)
+    {
+        if (idx >= _num_taps) {
+            throw uhd::value_error(
+                "Tap index " + std::to_string(idx) +
+                " out of range (0.." + std::to_string(_num_taps - 1) + ")");
+        }
+    }
+
+    void _check_delay(uint32_t delay)
+    {
+        if (delay >= _max_delay) {
+            throw uhd::value_error(
+                "Delay " + std::to_string(delay) +
+                " out of range (0.." + std::to_string(_max_delay - 1) + ")");
+        }
+    }
+};
+
+// NOC_ID must match the one in noc_shell_sparse_fir.v (0x5F1A0004)
+UHD_RFNOC_BLOCK_REGISTER_DIRECT(
+    sparse_fir_block_control, 0x5F1A0004, "SparseFIR", CLOCK_KEY_GRAPH, "bus_clk")

@@ -1,0 +1,15 @@
+#
+# Copyright 2025 OpenAirLink Contributors
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+
+##################################################
+# RFNoC Block Sources - Sparse FIR Filter
+##################################################
+RFNOC_OOT_SRCS += $(addprefix $(dir $(abspath $(lastword $(MAKEFILE_LIST)))), \
+rfnoc_sparse_fir_regs.vh \
+axi_sparse_fir.v \
+rfnoc_block_sparse_fir.v \
+noc_shell_sparse_fir.v \
+)
