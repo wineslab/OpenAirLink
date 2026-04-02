@@ -3,13 +3,13 @@
 # 1 gNB + 3 UE Bidirectional Channel Emulator Configuration (Sparse FIR)
 #
 # This image core replaces the dense FIR filters with sparse FIR filters.
-# Each sparse FIR has NUM_TAPS=4 programmable taps with arbitrary delay
+# Each sparse FIR has NUM_TAPS=32 programmable taps with arbitrary delay
 # offsets into a MAX_DELAY=1024 sample deep BRAM delay line.
 #
 # Resource comparison (per FIR block, I+Q):
-#   Dense FIR (41 taps):  82 DSP48, 0 BRAM
-#   Sparse FIR (4 taps):   8 DSP48, 8 BRAM18
-#   Total savings:        444 DSP48 across 6 blocks
+#   Dense FIR (41 taps):   82 DSP48, 0 BRAM
+#   Sparse FIR (32 taps):  64 DSP48, 64 BRAM18
+#   Total (6 blocks):     384 DSP48, 384 BRAM18
 #
 # Delay spread coverage:
 #   Dense FIR:  41 taps × 5ns = 205 ns (~60m)
@@ -149,19 +149,19 @@ noc_blocks:
   sfir_dl0:
     block_desc: 'sparse_fir.yml'
     parameters:
-      NUM_TAPS: 4
+      NUM_TAPS: 32
       MAX_DELAY: 1024
       COEFF_WIDTH: 16
   sfir_dl1:
     block_desc: 'sparse_fir.yml'
     parameters:
-      NUM_TAPS: 4
+      NUM_TAPS: 32
       MAX_DELAY: 1024
       COEFF_WIDTH: 16
   sfir_dl2:
     block_desc: 'sparse_fir.yml'
     parameters:
-      NUM_TAPS: 4
+      NUM_TAPS: 32
       MAX_DELAY: 1024
       COEFF_WIDTH: 16
 
@@ -178,19 +178,19 @@ noc_blocks:
   sfir_ul0:
     block_desc: 'sparse_fir.yml'
     parameters:
-      NUM_TAPS: 4
+      NUM_TAPS: 32
       MAX_DELAY: 1024
       COEFF_WIDTH: 16
   sfir_ul1:
     block_desc: 'sparse_fir.yml'
     parameters:
-      NUM_TAPS: 4
+      NUM_TAPS: 32
       MAX_DELAY: 1024
       COEFF_WIDTH: 16
   sfir_ul2:
     block_desc: 'sparse_fir.yml'
     parameters:
-      NUM_TAPS: 4
+      NUM_TAPS: 32
       MAX_DELAY: 1024
       COEFF_WIDTH: 16
 

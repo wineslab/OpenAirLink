@@ -17,9 +17,9 @@
 //   delay offset and coefficient, allowing large delay spread coverage
 //   (e.g., 5 us) with minimal DSP48 usage.
 //
-//   Resources per block instance (NUM_TAPS=4, MAX_DELAY=1024):
-//     - DSP48E2: 8 (4 taps x 2 for I+Q)
-//     - BRAM18:  8 (4 copies x 2 for I+Q, 1024x16 each)
+//   Resources per block instance (NUM_TAPS taps, MAX_DELAY=1024):
+//     - DSP48E2: 2*NUM_TAPS (one multiplier per tap per I/Q path)
+//     - BRAM18:  2*NUM_TAPS (one delay-line copy per tap per I/Q path)
 //     - Compare to dense FIR: 82 DSP48 for just 41 taps!
 //
 // Parameters:
@@ -243,6 +243,18 @@ module rfnoc_block_sparse_fir #(
     reg_tap_coeff[0] = {1'b0, {(COEFF_WIDTH-1){1'b1}}};  // Max positive
   end
 
+  // ---- Address decode (combinational) ----
+  // REG_TAP_STRIDE = 0x08 = 8, so dividing by stride is a right-shift by 3,
+  // and the intra-tap offset is bits [2:0]. Bit 2 selects delay vs coeff,
+  // bits [1:0] must be zero for a valid 32-bit-aligned access.
+  wire [SPARSE_FIR_ADDR_W-1:0] local_addr  = m_ctrlport_req_addr[SPARSE_FIR_ADDR_W-1:0];
+  wire                          in_tap_rgn  = (local_addr >= REG_TAP_BASE[SPARSE_FIR_ADDR_W-1:0]);
+  wire [SPARSE_FIR_ADDR_W-1:0] tap_offset  = local_addr - REG_TAP_BASE[SPARSE_FIR_ADDR_W-1:0];
+  wire [4:0]                    tap_idx     = tap_offset[7:3]; // divide by 8
+  wire                          is_coeff    = tap_offset[2];   // 0 = delay, 1 = coeff
+  wire                          tap_aligned = ~(|tap_offset[1:0]); // bits [1:0] == 0
+  wire                          tap_valid   = in_tap_rgn & tap_aligned & (tap_idx < NUM_TAPS);
+
   // Register read/write logic
   always @(posedge ctrlport_clk) begin
     if (ctrlport_rst) begin
@@ -261,47 +273,26 @@ module rfnoc_block_sparse_fir #(
 
       // Handle reads
       if (m_ctrlport_req_rd) begin
-        case (m_ctrlport_req_addr[SPARSE_FIR_ADDR_W-1:0])
-          REG_COMPAT_NUM: begin
+        case (local_addr)
+          REG_COMPAT_NUM[SPARSE_FIR_ADDR_W-1:0]: begin
             m_ctrlport_resp_data <= {COMPAT_MAJOR, COMPAT_MINOR};
             m_ctrlport_resp_ack  <= 1'b1;
           end
-          REG_NUM_TAPS: begin
+          REG_NUM_TAPS[SPARSE_FIR_ADDR_W-1:0]: begin
             m_ctrlport_resp_data <= NUM_TAPS;
             m_ctrlport_resp_ack  <= 1'b1;
           end
-          REG_MAX_DELAY: begin
+          REG_MAX_DELAY[SPARSE_FIR_ADDR_W-1:0]: begin
             m_ctrlport_resp_data <= MAX_DELAY;
             m_ctrlport_resp_ack  <= 1'b1;
           end
           default: begin
-            // Check if address falls in the per-tap register region
-            if (m_ctrlport_req_addr[SPARSE_FIR_ADDR_W-1:0] >= REG_TAP_BASE) begin
-              // Compute tap index and register offset
-              // tap_index = (addr - REG_TAP_BASE) / REG_TAP_STRIDE
-              // reg_offset = (addr - REG_TAP_BASE) % REG_TAP_STRIDE
+            if (tap_valid) begin
               m_ctrlport_resp_ack <= 1'b1;
-              case ((m_ctrlport_req_addr[SPARSE_FIR_ADDR_W-1:0] - REG_TAP_BASE) % REG_TAP_STRIDE)
-                REG_TAP_DELAY_OFF: begin
-                  case ((m_ctrlport_req_addr[SPARSE_FIR_ADDR_W-1:0] - REG_TAP_BASE) / REG_TAP_STRIDE)
-                    0: m_ctrlport_resp_data <= {{(32-DELAY_W){1'b0}}, reg_tap_delay[0]};
-                    1: m_ctrlport_resp_data <= {{(32-DELAY_W){1'b0}}, reg_tap_delay[1]};
-                    2: m_ctrlport_resp_data <= {{(32-DELAY_W){1'b0}}, reg_tap_delay[2]};
-                    3: m_ctrlport_resp_data <= {{(32-DELAY_W){1'b0}}, reg_tap_delay[3]};
-                    default: m_ctrlport_resp_ack <= 1'b0;
-                  endcase
-                end
-                REG_TAP_COEFF_OFF: begin
-                  case ((m_ctrlport_req_addr[SPARSE_FIR_ADDR_W-1:0] - REG_TAP_BASE) / REG_TAP_STRIDE)
-                    0: m_ctrlport_resp_data <= {{(32-COEFF_WIDTH){1'b0}}, reg_tap_coeff[0]};
-                    1: m_ctrlport_resp_data <= {{(32-COEFF_WIDTH){1'b0}}, reg_tap_coeff[1]};
-                    2: m_ctrlport_resp_data <= {{(32-COEFF_WIDTH){1'b0}}, reg_tap_coeff[2]};
-                    3: m_ctrlport_resp_data <= {{(32-COEFF_WIDTH){1'b0}}, reg_tap_coeff[3]};
-                    default: m_ctrlport_resp_ack <= 1'b0;
-                  endcase
-                end
-                default: m_ctrlport_resp_ack <= 1'b0;
-              endcase
+              if (is_coeff)
+                m_ctrlport_resp_data <= {{(32-COEFF_WIDTH){1'b0}}, reg_tap_coeff[tap_idx]};
+              else
+                m_ctrlport_resp_data <= {{(32-DELAY_W){1'b0}}, reg_tap_delay[tap_idx]};
             end
           end
         endcase
@@ -309,29 +300,12 @@ module rfnoc_block_sparse_fir #(
 
       // Handle writes
       if (m_ctrlport_req_wr) begin
-        if (m_ctrlport_req_addr[SPARSE_FIR_ADDR_W-1:0] >= REG_TAP_BASE) begin
+        if (tap_valid) begin
           m_ctrlport_resp_ack <= 1'b1;
-          case ((m_ctrlport_req_addr[SPARSE_FIR_ADDR_W-1:0] - REG_TAP_BASE) % REG_TAP_STRIDE)
-            REG_TAP_DELAY_OFF: begin
-              case ((m_ctrlport_req_addr[SPARSE_FIR_ADDR_W-1:0] - REG_TAP_BASE) / REG_TAP_STRIDE)
-                0: reg_tap_delay[0] <= m_ctrlport_req_data[DELAY_W-1:0];
-                1: reg_tap_delay[1] <= m_ctrlport_req_data[DELAY_W-1:0];
-                2: reg_tap_delay[2] <= m_ctrlport_req_data[DELAY_W-1:0];
-                3: reg_tap_delay[3] <= m_ctrlport_req_data[DELAY_W-1:0];
-                default: m_ctrlport_resp_ack <= 1'b0;
-              endcase
-            end
-            REG_TAP_COEFF_OFF: begin
-              case ((m_ctrlport_req_addr[SPARSE_FIR_ADDR_W-1:0] - REG_TAP_BASE) / REG_TAP_STRIDE)
-                0: reg_tap_coeff[0] <= m_ctrlport_req_data[COEFF_WIDTH-1:0];
-                1: reg_tap_coeff[1] <= m_ctrlport_req_data[COEFF_WIDTH-1:0];
-                2: reg_tap_coeff[2] <= m_ctrlport_req_data[COEFF_WIDTH-1:0];
-                3: reg_tap_coeff[3] <= m_ctrlport_req_data[COEFF_WIDTH-1:0];
-                default: m_ctrlport_resp_ack <= 1'b0;
-              endcase
-            end
-            default: m_ctrlport_resp_ack <= 1'b0;
-          endcase
+          if (is_coeff)
+            reg_tap_coeff[tap_idx] <= m_ctrlport_req_data[COEFF_WIDTH-1:0];
+          else
+            reg_tap_delay[tap_idx] <= m_ctrlport_req_data[DELAY_W-1:0];
         end
       end
     end

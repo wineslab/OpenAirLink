@@ -14,18 +14,18 @@
 //   0x04  REG_NUM_TAPS        (R)   - Number of active taps (compile-time)
 //   0x08  REG_MAX_DELAY       (R)   - Maximum delay depth (compile-time)
 //   0x0C  (reserved)
-//   0x10  REG_TAP0_DELAY      (R/W) - Delay in samples for tap 0
-//   0x14  REG_TAP0_COEFF      (R/W) - Coefficient for tap 0 (signed 16-bit)
-//   0x18  REG_TAP1_DELAY      (R/W)
-//   0x1C  REG_TAP1_COEFF      (R/W)
-//   0x20  REG_TAP2_DELAY      (R/W)
-//   0x24  REG_TAP2_COEFF      (R/W)
-//   0x28  REG_TAP3_DELAY      (R/W)
-//   0x2C  REG_TAP3_COEFF      (R/W)
+//
+//   Per-tap registers (i = 0 .. NUM_TAPS-1):
+//     0x10 + i*0x08 + 0x00  REG_TAP[i]_DELAY  (R/W) - Delay in samples
+//     0x10 + i*0x08 + 0x04  REG_TAP[i]_COEFF  (R/W) - Coefficient (signed)
+//
+//   For NUM_TAPS=32, last tap register is at 0x10 + 31*0x08 + 0x04 = 0x10C.
 //
 
 // Address space per sparse_fir block. Each block occupies 2^SPARSE_FIR_ADDR_W bytes.
-localparam SPARSE_FIR_ADDR_W = 6; // 64 bytes
+// Must be wide enough for: REG_TAP_BASE + NUM_TAPS * REG_TAP_STRIDE
+// For NUM_TAPS=32: 0x10 + 32*0x08 = 0x110 -> need 9 bits (512 bytes).
+localparam SPARSE_FIR_ADDR_W = 9; // 512 bytes
 
 // Read-only info registers
 localparam REG_COMPAT_NUM    = 'h00;

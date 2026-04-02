@@ -37,14 +37,14 @@
 // Pipeline latency (input sample_stb -> m_axis_tvalid asserted):
 //
 //   TREE_STAGES    = max(clog2(NUM_TAPS), 1)
-//   PIPELINE_DELAY = 1(BRAM) + 1(tap_data_reg) + 1(multiply) + TREE_STAGES + 1(output_reg)
+//   PIPELINE_DELAY = 1(BRAM) + 1(multiply) + TREE_STAGES + 1(output_reg)
 //
-//   NUM_TAPS =  1 : PIPELINE_DELAY = 5  (TREE_STAGES = 1, passthrough node)
-//   NUM_TAPS =  2 : PIPELINE_DELAY = 5
-//   NUM_TAPS =  4 : PIPELINE_DELAY = 6
-//   NUM_TAPS =  8 : PIPELINE_DELAY = 7
-//   NUM_TAPS = 16 : PIPELINE_DELAY = 8
-//   NUM_TAPS = 32 : PIPELINE_DELAY = 9
+//   NUM_TAPS =  1 : PIPELINE_DELAY = 4  (TREE_STAGES = 1, passthrough node)
+//   NUM_TAPS =  2 : PIPELINE_DELAY = 4
+//   NUM_TAPS =  4 : PIPELINE_DELAY = 5
+//   NUM_TAPS =  8 : PIPELINE_DELAY = 6
+//   NUM_TAPS = 16 : PIPELINE_DELAY = 7
+//   NUM_TAPS = 32 : PIPELINE_DELAY = 8
 //
 // Adder tree flat-array layout:
 //
@@ -122,8 +122,8 @@ module axi_sparse_fir #(
   localparam TREE_STAGES = ($clog2(NUM_TAPS) > 0) ? $clog2(NUM_TAPS) : 1;
 
   // Total pipeline stages from sample_stb to output register load:
-  //   1 (BRAM read) + 1 (tap_data_reg) + 1 (multiply) + TREE_STAGES (adder tree) + 1 (out reg)
-  localparam PIPELINE_DELAY = 4 + TREE_STAGES;
+  //   1 (BRAM read) + 1 (multiply) + TREE_STAGES (adder tree) + 1 (out reg)
+  localparam PIPELINE_DELAY = 3 + TREE_STAGES;
 
   // Shift-register depth for tvalid/tlast: covers all stages except the
   // output register (which handles its own flag storage).
@@ -217,24 +217,7 @@ module axi_sparse_fir #(
   endgenerate
 
   // -------------------------------------------------------------------------
-  // Tap data register: breaks the BRAM-output -> bypass-MUX -> DSP-input
-  // combinational path into two registered hops, fixing timing closure.
-  // -------------------------------------------------------------------------
-  reg [IN_WIDTH-1:0] tap_data [0:NUM_TAPS-1];
-
-  generate
-    for (t = 0; t < NUM_TAPS; t = t + 1) begin : gen_tap_data_reg
-      always @(posedge clk) begin
-        if (rst)
-          tap_data[t] <= {IN_WIDTH{1'b0}};
-        else if (sample_stb)
-          tap_data[t] <= delayed_sample[t];
-      end
-    end
-  endgenerate
-
-  // -------------------------------------------------------------------------
-  // Multiply: products[t] = tap_data[t] * tap_coeff[t], registered
+  // Multiply: products[t] = delayed_sample[t] * tap_coeff[t], registered
   // -------------------------------------------------------------------------
   reg signed [MULT_W-1:0] products [0:NUM_TAPS-1];
 
@@ -247,7 +230,7 @@ module axi_sparse_fir #(
         if (rst)
           products[t] <= {MULT_W{1'b0}};
         else if (sample_stb)
-          products[t] <= $signed(tap_data[t]) * this_coeff;
+          products[t] <= $signed(delayed_sample[t]) * this_coeff;
       end
     end
   endgenerate
