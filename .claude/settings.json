@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "permissions": {
+    "allow": [
+      "Bash(cd /home/wines/Desktop/OpenAirLink/* && *)",
+      "Bash(cd /home/wines/Desktop/uhd/* && *)",
+      "Bash(grep *)",
+      "Bash(ls *)",
+      "Bash(find * -name *)",
+      "Bash(cat *)",
+      "Bash(head *)",
+      "Bash(tail *)",
+      "Bash(wc *)",
+      "Bash(git status*)",
+      "Bash(git diff*)",
+      "Bash(git log*)",
+      "Bash(ssh x410_* *)",
+      "Bash(scp *)"
+    ],
+    "deny": [
+      "Bash(rm -rf /)",
+      "Bash(git push --force*)"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "if": "Bash(make x410_rfnoc_image_core*)",
+            "command": "/home/wines/Desktop/OpenAirLink/.claude/hooks/pre-synth-check.sh"
+          }
+        ]
+      }
+    ]
+  }
+}
