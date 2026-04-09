@@ -12,7 +12,21 @@ Flash the FPGA image and build/install the host software on the target X410.
 
 ## Arguments
 
-- `$ARGUMENTS` — the X410 SSH hostname or IP (e.g., `x410_0`, `10.112.1.97`). Required.
+- `$ARGUMENTS` — space-separated: `<X410_HOST> <FOLDER_NAME>`
+  - `<X410_HOST>`: SSH hostname or IP (e.g., `x410_0`, `10.112.1.97`). Required.
+  - `<FOLDER_NAME>`: target folder on the X410 (e.g., `emulator_4ch_sparse_complex_32taps`). Required.
+  - Example: `/deploy x410_0 emulator_4ch_sparse_complex_32taps`
+
+The folder structure on the X410 follows this convention:
+```
+~/<FOLDER_NAME>/
+  usrp_x410_fpga_OAL_SPARSE.bit   ← bitstream
+  usrp_x410_fpga_OAL_SPARSE.dts   ← preprocessed DTS
+  OpenAirLink/                     ← OAL source + build
+    rfnoc-openairlink/
+      build/
+        apps/oal_4chan_sparse
+```
 
 ## Part 1: FPGA Image
 
@@ -30,15 +44,15 @@ Flash the FPGA image and build/install the host software on the target X410.
      /home/wines/Desktop/OpenAirLink/rfnoc-openairlink/build/icores/build-usrp_x410_fpga_OAL_SPARSE/device_tree.dts
    ```
 
-3. **Copy both files to the X410**:
+3. **Copy both files to the X410 folder**:
    ```bash
-   scp /home/wines/Desktop/OpenAirLink/rfnoc-openairlink/build/icores/build-usrp_x410_fpga_OAL_SPARSE/x4xx.bit <X410_HOST>:~/usrp_x410_fpga_OAL_SPARSE.bit
-   scp /home/wines/Desktop/OpenAirLink/rfnoc-openairlink/build/icores/build-usrp_x410_fpga_OAL_SPARSE/usrp_x410_fpga_OAL_SPARSE.dts <X410_HOST>:~/usrp_x410_fpga_OAL_SPARSE.dts
+   scp /home/wines/Desktop/OpenAirLink/rfnoc-openairlink/build/icores/build-usrp_x410_fpga_OAL_SPARSE/x4xx.bit <X410_HOST>:~/<FOLDER_NAME>/usrp_x410_fpga_OAL_SPARSE.bit
+   scp /home/wines/Desktop/OpenAirLink/rfnoc-openairlink/build/icores/build-usrp_x410_fpga_OAL_SPARSE/usrp_x410_fpga_OAL_SPARSE.dts <X410_HOST>:~/<FOLDER_NAME>/usrp_x410_fpga_OAL_SPARSE.dts
    ```
 
 4. **Load the image on X410**:
    ```bash
-   ssh <X410_HOST> "uhd_image_loader --args 'type=x4xx,addr=127.0.0.1' --fpga-path ~/usrp_x410_fpga_OAL_SPARSE.bit"
+   ssh <X410_HOST> "uhd_image_loader --args 'type=x4xx,addr=127.0.0.1' --fpga-path ~/<FOLDER_NAME>/usrp_x410_fpga_OAL_SPARSE.bit"
    ```
 
 5. **Reboot**:
@@ -47,24 +61,20 @@ Flash the FPGA image and build/install the host software on the target X410.
    ```
    Tell the user to wait ~60 seconds for the X410 to come back up.
 
-## Part 2: Build & Install OAL Host Software
+## Part 2: Sync & Build OAL Host Software
 
-6. **Check if source code is on the X410**:
+6. **Sync the OAL source to the X410 folder** (excludes build/ to keep it clean):
    ```bash
-   ssh <X410_HOST> "ls ~/OpenAirLink/rfnoc-openairlink/CMakeLists.txt 2>/dev/null || ls ~/emulator_*/OpenAirLink/rfnoc-openairlink/CMakeLists.txt 2>/dev/null"
+   rsync -av --exclude='rfnoc-openairlink/build/' --exclude='.git/' \
+     /home/wines/Desktop/OpenAirLink/ \
+     <X410_HOST>:~/<FOLDER_NAME>/OpenAirLink/
    ```
-   If not found, the user needs to clone or copy the repo to the X410 first.
 
-7. **Build and install** (find the correct path from step 6):
-   First, find the UHD FPGA directory on the X410:
+7. **Build and install on the X410**:
+   UHD FPGA dir on X410 is `/home/root/uhd/fpga` (note: pass `fpga/`, not `fpga/usrp3/`).
    ```bash
-   ssh <X410_HOST> "find /home /root /opt /usr -maxdepth 5 -path '*/uhd/fpga/usrp3' -type d 2>/dev/null | head -3"
+   ssh <X410_HOST> "cd ~/<FOLDER_NAME>/OpenAirLink/rfnoc-openairlink && mkdir -p build && cd build && cmake -DUHD_FPGA_DIR=/home/root/uhd/fpga .. && make -j\$(nproc) && make install && ldconfig"
    ```
-   Then build with the discovered path:
-   ```bash
-   ssh <X410_HOST> "cd <OAL_PATH>/rfnoc-openairlink && mkdir -p build && cd build && cmake -DUHD_FPGA_DIR=<UHD_FPGA_PATH> .. && make -j\$(nproc) && make install && ldconfig"
-   ```
-   If no UHD FPGA source is found on the X410, `cmake ..` without `-DUHD_FPGA_DIR` may still work if only building the host library (not FPGA images). Try it — if cmake complains about missing FPGA dir, ask the user where UHD is installed on that device.
 
 8. **Verify library installed**:
    ```bash

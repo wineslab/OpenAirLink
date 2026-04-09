@@ -12,13 +12,13 @@ Launch the channel emulator application on the X410.
 
 ## Arguments
 
-- `$ARGUMENTS` — space-separated options. First arg is X410 hostname. Remaining args passed to the app.
-  - Example: `/run-oal x410_0 --gnb-freq 3.55e9 --script`
+- `$ARGUMENTS` — space-separated options. First arg is X410 hostname, second is the emulator folder name. Remaining args passed to the app.
+  - Example: `/run-oal x410_0 emulator_4ch_sparse_complex_32taps --gnb-freq 3.55e9 --script`
 
 ## Default Command
 
 ```bash
-ssh <X410_HOST> "cd ~/OpenAirLink/rfnoc-openairlink/build && \
+ssh <X410_HOST> "cd ~/<FOLDER_NAME>/OpenAirLink/rfnoc-openairlink/build && \
   LD_PRELOAD=/usr/local/lib/librfnoc-openairlink.so \
   ./apps/oal_4chan_sparse \
   --args 'addr=127.0.0.1,clock_source=external,time_source=external' \
