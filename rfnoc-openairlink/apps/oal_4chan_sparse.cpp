@@ -34,10 +34,14 @@
  *   UPLINK:   UE radios RX -> SparseFIR_UL -> shift_UL -> ADDER -> radio0_TX0
  *
  * CSV Channel Config Format (per channel):
- *   delay0:coeff0 delay1:coeff1 delay2:coeff2 delay3:coeff3, shift_value
+ *   delay0:coeff0 delay1:coeff1 ..., shift_value
+ *
+ * Coefficients can be real or complex:
+ *   Real:    delay:coeff        (e.g. 0:32767)
+ *   Complex: delay:re+imj       (e.g. 100:23170+23170j, 200:8000-4000j)
  *
  * Example CSV line (6 channels: DL0,DL1,DL2,UL0,UL1,UL2):
- *   0:32767 100:8000 0:0 0:0, 6, 0:32767 0:0 0:0 0:0, 6, ...
+ *   0:23170+23170j 100:8000 0:0 0:0, 6, 0:32767 0:0 0:0 0:0, 6, ...
  */
 
 #include <uhd/rfnoc/block_id.hpp>
@@ -95,39 +99,85 @@ std::string space_trim(const std::string& str) {
 }
 
 /****************************************************************************
- * Parse sparse FIR tap config string
+ * Parse sparse FIR tap config string (supports complex coefficients)
  *
- * Format: "delay0:coeff0 delay1:coeff1 delay2:coeff2 delay3:coeff3"
- * Returns pair of vectors: {delays, coefficients}
+ * Formats:
+ *   "delay0:coeff0 delay1:coeff1 ..."              (real-only, backward compatible)
+ *   "delay0:re0+im0j delay1:re1-im1j ..."          (complex coefficients)
+ *   "delay0:re0+im0j delay1:coeff1 ..."             (mixed: some real, some complex)
+ *
+ * Examples:
+ *   "0:32767 100:8000"                              -> h[0]=32767+0j, h[1]=8000+0j
+ *   "0:23170+23170j 100:8000-4000j"                 -> h[0]=23170+23170j, h[1]=8000-4000j
+ *
+ * Returns tuple of vectors: {delays, coeffs_re, coeffs_im}
  ***************************************************************************/
-std::pair<std::vector<uint32_t>, std::vector<int16_t>>
-parse_sparse_taps(const std::string& input, size_t num_taps)
-{
+struct sparse_tap_config {
     std::vector<uint32_t> delays;
-    std::vector<int16_t> coeffs;
+    std::vector<int16_t> coeffs_re;
+    std::vector<int16_t> coeffs_im;
+};
+
+sparse_tap_config parse_sparse_taps(const std::string& input, size_t num_taps)
+{
+    sparse_tap_config cfg;
 
     std::istringstream iss(space_trim(input));
     std::string token;
 
     while (iss >> token) {
+        uint32_t delay;
+        int16_t coeff_re = 0, coeff_im = 0;
+
         size_t colon_pos = token.find(':');
         if (colon_pos == std::string::npos) {
-            // If no colon, treat as coefficient at delay=current_index
-            delays.push_back(static_cast<uint32_t>(delays.size()));
-            coeffs.push_back(static_cast<int16_t>(std::stoi(token)));
+            // No colon: treat as real coefficient at delay=current_index
+            delay = static_cast<uint32_t>(cfg.delays.size());
+            coeff_re = static_cast<int16_t>(std::stoi(token));
         } else {
-            delays.push_back(static_cast<uint32_t>(std::stoul(token.substr(0, colon_pos))));
-            coeffs.push_back(static_cast<int16_t>(std::stoi(token.substr(colon_pos + 1))));
+            delay = static_cast<uint32_t>(std::stoul(token.substr(0, colon_pos)));
+            std::string coeff_str = token.substr(colon_pos + 1);
+
+            // Check for complex notation: re+imj or re-imj
+            size_t j_pos = coeff_str.find('j');
+            if (j_pos != std::string::npos) {
+                // Remove trailing 'j'
+                std::string no_j = coeff_str.substr(0, j_pos);
+                // Find the +/- separator (skip leading minus for negative re)
+                size_t sep = std::string::npos;
+                for (size_t i = 1; i < no_j.size(); i++) {
+                    if (no_j[i] == '+' || no_j[i] == '-') {
+                        sep = i;
+                        break;
+                    }
+                }
+                if (sep != std::string::npos) {
+                    coeff_re = static_cast<int16_t>(std::stoi(no_j.substr(0, sep)));
+                    coeff_im = static_cast<int16_t>(std::stoi(no_j.substr(sep)));
+                } else {
+                    // Pure imaginary: e.g. "100:5000j"
+                    coeff_re = 0;
+                    coeff_im = static_cast<int16_t>(std::stoi(no_j));
+                }
+            } else {
+                // Real-only coefficient
+                coeff_re = static_cast<int16_t>(std::stoi(coeff_str));
+            }
         }
+
+        cfg.delays.push_back(delay);
+        cfg.coeffs_re.push_back(coeff_re);
+        cfg.coeffs_im.push_back(coeff_im);
     }
 
     // Pad to num_taps with zeros
-    while (delays.size() < num_taps) {
-        delays.push_back(0);
-        coeffs.push_back(0);
+    while (cfg.delays.size() < num_taps) {
+        cfg.delays.push_back(0);
+        cfg.coeffs_re.push_back(0);
+        cfg.coeffs_im.push_back(0);
     }
 
-    return {delays, coeffs};
+    return cfg;
 }
 
 /****************************************************************************
@@ -177,6 +227,17 @@ void print_channel_status(
     std::cout << "\n=== Sparse FIR Config (taps=" << num_taps 
               << ", max_delay=" << max_delay << " samples) ===" << std::endl;
 
+    // Helper to format a tap as "delay:re" or "delay:re+imj"
+    auto fmt_tap = [](uint32_t d, int16_t re, int16_t im) -> std::string {
+        if (im == 0) {
+            return (boost::format("%d:%d") % d % re).str();
+        } else if (im > 0) {
+            return (boost::format("%d:%d+%dj") % d % re % im).str();
+        } else {
+            return (boost::format("%d:%d%dj") % d % re % im).str();
+        }
+    };
+
     std::cout << "--- Downlink (gNB -> UEs) ---" << std::endl;
     for (size_t i = 0; i < NUM_DL_CHANNELS; i++) {
         uint32_t shift_val = shift_dl[i]->get_shiftright_value();
@@ -184,8 +245,8 @@ void print_channel_status(
                      % i % (i + 1) % shift_val;
         for (uint32_t t = 0; t < num_taps; t++) {
             uint32_t d = sfir_dl[i]->get_tap_delay(t);
-            int16_t c = sfir_dl[i]->get_tap_coeff(t);
-            std::cout << boost::format("%d:%d") % d % c;
+            auto [re, im] = sfir_dl[i]->get_tap_coeff_complex(t);
+            std::cout << fmt_tap(d, re, im);
             if (t < num_taps - 1) std::cout << " ";
         }
         std::cout << "]" << std::endl;
@@ -198,8 +259,8 @@ void print_channel_status(
                      % i % (i + 1) % shift_val;
         for (uint32_t t = 0; t < num_taps; t++) {
             uint32_t d = sfir_ul[i]->get_tap_delay(t);
-            int16_t c = sfir_ul[i]->get_tap_coeff(t);
-            std::cout << boost::format("%d:%d") % d % c;
+            auto [re, im] = sfir_ul[i]->get_tap_coeff_complex(t);
+            std::cout << fmt_tap(d, re, im);
             if (t < num_taps - 1) std::cout << " ";
         }
         std::cout << "]" << std::endl;
@@ -273,7 +334,8 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
         std::cout << boost::format("OpenAirLink 4-Channel Sparse FIR Emulator\n%s") % desc
                   << std::endl;
         std::cout << "\nCSV format per channel: delay0:coeff0 delay1:coeff1 ... , shift_value\n"
-                  << "Example: 0:32767 100:8000 200:4000 0:0, 6\n"
+                  << "Complex coefficients: delay:re+imj (e.g. 100:23170+23170j)\n"
+                  << "Example: 0:32767 100:8000-4000j 200:4000 0:0, 6\n"
                   << std::endl;
         return ~0;
     }
@@ -445,9 +507,9 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
                              shiftright_block_control::sptr shift,
                              const std::string& taps_s,
                              const std::string& shift_s) {
-        auto [delays, coeffs] = parse_sparse_taps(taps_s, num_taps);
+        auto cfg = parse_sparse_taps(taps_s, num_taps);
         uint32_t bit_shift = static_cast<uint32_t>(std::stoi(space_trim(shift_s)));
-        sfir->set_all_taps(delays, coeffs);
+        sfir->set_all_taps_complex(cfg.delays, cfg.coeffs_re, cfg.coeffs_im);
         shift->set_shiftright_value(bit_shift);
     };
 
