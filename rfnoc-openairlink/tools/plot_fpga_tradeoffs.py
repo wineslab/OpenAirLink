@@ -8,6 +8,9 @@ of (NUM_TAPS, N_channels, MAX_DELAY) without requiring FPGA builds.
 Based on measured post-route data from the OAL_SPARSE build:
   - Platform overhead: ~2791 DSPs, ~210 BRAM18
   - X410 (xczu28dr): 4272 DSP48E2, 2160 BRAM18, 1080 BRAM36
+
+Note: Complex coefficients (h_re + j*h_im) require 4 DSP48 per tap
+(h_re*I, h_im*Q, h_re*Q, h_im*I). BRAM count unchanged (2 per tap).
 """
 
 import matplotlib
@@ -39,8 +42,8 @@ SPEED_OF_LIGHT = 3e8       # m/s
 
 
 def fir_dsps(n_channels, num_taps):
-    """DSP48E2 count for all FIR blocks (I+Q paths)."""
-    return n_channels * 2 * num_taps
+    """DSP48E2 count for all FIR blocks (complex coefficients: 4 DSPs per tap)."""
+    return n_channels * 4 * num_taps
 
 
 def fir_bram18(n_channels, num_taps):
@@ -271,8 +274,8 @@ def plot_resource_summary(ax):
 
 def main():
     fig, axes = plt.subplots(2, 2, figsize=(16, 12))
-    fig.suptitle("X410 Sparse FIR — FPGA Resource Trade-off Analysis\n"
-                 "xczu28dr | 4272 DSPs | 2160 BRAM18 | Platform overhead: 2791 DSPs",
+    fig.suptitle("X410 Sparse FIR (Complex Coeff) — FPGA Resource Trade-off Analysis\n"
+                 "xczu28dr | 4272 DSPs | 2160 BRAM18 | Platform: 2791 DSPs | 4 DSP/tap",
                  fontsize=13, fontweight="bold")
 
     plot_taps_vs_channels(axes[0, 0])
