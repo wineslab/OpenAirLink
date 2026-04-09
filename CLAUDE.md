@@ -46,7 +46,7 @@ LD_PRELOAD=/usr/local/lib/librfnoc-openairlink.so ./apps/oal_4chan_sparse \
 
 ### RFNoC blocks (rfnoc-openairlink/fpga/)
 Two custom blocks, each following the standard RFNoC pattern:
-- **sparse_fir** (NOC ID `0x5F1A0004`): BRAM-based sparse FIR filter. NUM_TAPS replicated BRAM delay lines with independent programmable delays and coefficients. Processes sc16 with separate I/Q FIR cores.
+- **sparse_fir** (NOC ID `0x5F1A0004`): BRAM-based sparse FIR filter with complex coefficients. NUM_TAPS replicated BRAM delay lines with independent programmable delays and complex coefficients (h_re + j*h_im). Processes sc16 with a single complex FIR engine (`axi_sparse_fir_complex`). COMPAT_MAJOR=2 indicates complex support. Coefficient register packs {im[31:16], re[15:0]}; writing only lower 16 bits (im=0) gives real-only backward compatibility.
 - **shiftright** (NOC ID `0x02D024`): Arithmetic right-shift for attenuation. Single register controls shift amount.
 
 Standard Ettus blocks used in image cores: `split_stream`, `addsub_patched`, `radio`.
@@ -76,13 +76,13 @@ Topology defined in `icores/x410_rfnoc_image_core_4chan_sparse.yml`.
 - `oal_single` / `oal_dual` / `oal_4chan`: Dense FIR variants (41 taps)
 - `oal_4chan_sparse`: Sparse FIR variant (dynamic NUM_TAPS from FPGA)
 
-All apps use Boost.program_options. CSV config parsed at runtime; sparse format is `delay:coeff` pairs, dense format is space-separated coefficients.
+All apps use Boost.program_options. CSV config parsed at runtime; sparse format is `delay:coeff` pairs (real) or `delay:re+imj` (complex), dense format is space-separated coefficients.
 
 ## Key Conventions
 
 - **Data format**: sc16 everywhere — 32-bit items with I[31:16], Q[15:0]
 - **Register pattern**: ctrlport with 20-bit address, 32-bit data. Per-block address decoded via `local_addr = req_addr[ADDR_W-1:0]`. Fixed registers at low addresses, per-tap/per-element registers at stride-based offsets.
-- **Sparse FIR register map**: `0x00` compat, `0x04` NUM_TAPS (R), `0x08` MAX_DELAY (R), `0x10 + i*0x08` delay/coeff pairs. Bit[2] of intra-tap offset selects delay(0) vs coeff(1).
+- **Sparse FIR register map**: `0x00` compat, `0x04` NUM_TAPS (R), `0x08` MAX_DELAY (R), `0x10 + i*0x08` delay/coeff pairs. Bit[2] of intra-tap offset selects delay(0) vs coeff(1). Coeff register is packed: `{coeff_im[31:16], coeff_re[15:0]}`.
 - **Block descriptors**: `blocks/*.yml` define NOC ID, parameters, clocks, and data interfaces for `rfnoc_image_builder`.
 - **Image cores**: `icores/*.yml` define the full FPGA topology (blocks, connections, clock domains, transport adapters).
 
@@ -98,6 +98,6 @@ All apps use Boost.program_options. CSV config parsed at runtime; sparse format 
 
 Files in `channel_control/`:
 - **Dense FIR**: `coeff0 coeff1 ... coeff40, shift_value` (41 int16 taps)
-- **Sparse FIR**: `delay0:coeff0 delay1:coeff1 ..., shift_value` (any number of taps, zero-padded to NUM_TAPS)
+- **Sparse FIR**: `delay0:coeff0 delay1:coeff1 ..., shift_value` (any number of taps, zero-padded to NUM_TAPS). Complex coefficients: `delay:re+imj` (e.g. `100:23170+23170j`)
 - **Modes**: `manually` files are polled periodically (--udt interval); `script` files are time-indexed sequences (--script flag)
 - 4-channel CSV has 6 channel columns per row (3 DL + 3 UL), comma-separated.

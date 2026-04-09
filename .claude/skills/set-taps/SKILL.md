@@ -27,12 +27,13 @@ Change the NUM_TAPS parameter for all sparse FIR blocks in the image core.
 3. **Update all 6 sfir blocks** (sfir_dl0, sfir_dl1, sfir_dl2, sfir_ul0, sfir_ul1, sfir_ul2) to the new NUM_TAPS value using Edit with `replace_all`.
 
 4. **Update the header comment** with corrected resource estimates:
-   - Per block (I+Q): `2*NUM_TAPS` DSP48, `2*NUM_TAPS` BRAM18
-   - Total (6 blocks): `12*NUM_TAPS` DSP48, `12*NUM_TAPS` BRAM18
+   - Per block (complex coefficients): `4*NUM_TAPS` DSP48, `2*NUM_TAPS` BRAM18
+   - Total (6 blocks): `24*NUM_TAPS` DSP48, `12*NUM_TAPS` BRAM18
 
-5. **Warn about timing**: 
-   - NUM_TAPS=32 is known to fail timing on X410 (WNS -0.129 ns from routing congestion)
-   - NUM_TAPS=16 fits with the tap_data pipeline register fix
-   - NUM_TAPS <= 8 should close timing easily
+5. **Warn about timing and DSP budget** (X410 has 4272 DSP48s):
+   - NUM_TAPS=32: 768 DSP48 for sparse FIR, ~3847 total (90%) — passed timing with WNS +0.043 ns
+   - NUM_TAPS=16: 384 DSP48 for sparse FIR — comfortable fit
+   - NUM_TAPS <= 8: easy timing closure
+   - DSP budget above 90% is a warning zone
 
 6. Remind the user to run `/synth` to rebuild the FPGA image after changing taps.

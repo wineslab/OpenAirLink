@@ -57,4 +57,7 @@ ssh <X410_HOST> "cd ~/OpenAirLink/rfnoc-openairlink/build && \
 
 5. **Channel configuration**: While the emulator runs, edit CSV files in `channel_control/`:
    - Sparse: `chan_4chan_sparse_manually.csv` — format: `delay0:coeff0 delay1:coeff1 ..., shift`
+     - Real coefficient: `0:32767` (backward compatible)
+     - Complex coefficient: `100:23170+23170j` (45-degree phase rotation)
+     - Mixed: `0:32767 100:8000-4000j 200:5000j 0:0, 6`
    - Dense: `chan_4chan_manually.csv` — format: `coeff0 coeff1 ... coeff40, shift`

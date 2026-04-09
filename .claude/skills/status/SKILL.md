@@ -21,9 +21,9 @@ Show current project state and, if a build exists, parse Vivado reports into a p
    grep -E "NUM_TAPS|MAX_DELAY|COEFF_WIDTH" /home/wines/Desktop/OpenAirLink/rfnoc-openairlink/icores/x410_rfnoc_image_core_4chan_sparse.yml | head -10
    ```
 
-2. **Sparse FIR pipeline config**:
+2. **Sparse FIR pipeline config** (complex FIR engine):
    ```bash
-   grep "PIPELINE_DELAY" /home/wines/Desktop/OpenAirLink/rfnoc-openairlink/fpga/rfnoc_block_sparse_fir/axi_sparse_fir.v | head -3
+   grep "PIPELINE_DELAY" /home/wines/Desktop/OpenAirLink/rfnoc-openairlink/fpga/rfnoc_block_sparse_fir/axi_sparse_fir_complex.v | head -3
    ```
 
 3. **Git status**:
@@ -144,7 +144,8 @@ Present as a concise verdict card:
 Status rules:
 - Timing WNS >= 0: **OK**. WNS < 0: **FAIL** (report slack and worst path module)
 - LUT > 85%: **WARN**. LUT > 95%: **CRITICAL**
-- BRAM/DSP > 90%: **WARN**
+- BRAM > 90%: **WARN**
+- DSP > 85%: **WARN** (complex taps use 4 DSP48 per tap per block)
 - Power > 25 W: **WARN** (X410 thermal limit)
 - Junction temp > 85 C: **WARN**
 - Any DRC ERROR: **FAIL**
