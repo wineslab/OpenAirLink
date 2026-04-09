@@ -17,7 +17,11 @@
 //
 //   Per-tap registers (i = 0 .. NUM_TAPS-1):
 //     0x10 + i*0x08 + 0x00  REG_TAP[i]_DELAY  (R/W) - Delay in samples
-//     0x10 + i*0x08 + 0x04  REG_TAP[i]_COEFF  (R/W) - Coefficient (signed)
+//     0x10 + i*0x08 + 0x04  REG_TAP[i]_COEFF  (R/W) - Complex coefficient (packed)
+//                            Bits [15:0]  = coeff_re (signed, Q1.15)
+//                            Bits [31:16] = coeff_im (signed, Q1.15)
+//                            When coeff_im=0, behavior is real-only (backward compatible).
+//                            COMPAT_MAJOR >= 2 indicates complex coefficient support.
 //
 //   For NUM_TAPS=32, last tap register is at 0x10 + 31*0x08 + 0x04 = 0x10C.
 //

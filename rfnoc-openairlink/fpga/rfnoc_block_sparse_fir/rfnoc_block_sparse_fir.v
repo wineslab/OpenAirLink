@@ -18,9 +18,9 @@
 //   (e.g., 5 us) with minimal DSP48 usage.
 //
 //   Resources per block instance (NUM_TAPS taps, MAX_DELAY=1024):
-//     - DSP48E2: 2*NUM_TAPS (one multiplier per tap per I/Q path)
-//     - BRAM18:  2*NUM_TAPS (one delay-line copy per tap per I/Q path)
-//     - Compare to dense FIR: 82 DSP48 for just 41 taps!
+//     - DSP48E2: 4*NUM_TAPS (complex multiply: h_re*I, h_im*Q, h_re*Q, h_im*I)
+//     - BRAM18:  2*NUM_TAPS (one delay-line per I/Q per tap)
+//     - When coeff_im=0 for all taps, behavior is real-only (backward compatible)
 //
 // Parameters:
 //
@@ -74,7 +74,7 @@ module rfnoc_block_sparse_fir #(
 
   `include "rfnoc_sparse_fir_regs.vh"
 
-  localparam COMPAT_MAJOR = 16'h1;
+  localparam COMPAT_MAJOR = 16'h2;  // v2: complex coefficients
   localparam COMPAT_MINOR = 16'h0;
 
   localparam IN_WIDTH  = 16;  // per I or Q component
@@ -217,18 +217,21 @@ module rfnoc_block_sparse_fir #(
   // interfaces use the ce clock domain, no CDC is needed.
   //---------------------------------------------------------------------------
 
-  reg [DELAY_W-1:0]      reg_tap_delay [0:NUM_TAPS-1];
-  reg [COEFF_WIDTH-1:0]  reg_tap_coeff [0:NUM_TAPS-1];
+  reg [DELAY_W-1:0]      reg_tap_delay    [0:NUM_TAPS-1];
+  reg [COEFF_WIDTH-1:0]  reg_tap_coeff_re [0:NUM_TAPS-1];
+  reg [COEFF_WIDTH-1:0]  reg_tap_coeff_im [0:NUM_TAPS-1];
 
-  // Pack tap config for the axi_sparse_fir cores
+  // Pack tap config for the axi_sparse_fir_complex core
   wire [NUM_TAPS*DELAY_W-1:0]      packed_delays;
-  wire [NUM_TAPS*COEFF_WIDTH-1:0]  packed_coeffs;
+  wire [NUM_TAPS*COEFF_WIDTH-1:0]  packed_coeffs_re;
+  wire [NUM_TAPS*COEFF_WIDTH-1:0]  packed_coeffs_im;
 
   genvar g;
   generate
     for (g = 0; g < NUM_TAPS; g = g + 1) begin : gen_pack
-      assign packed_delays[DELAY_W*g +: DELAY_W]         = reg_tap_delay[g];
-      assign packed_coeffs[COEFF_WIDTH*g +: COEFF_WIDTH]  = reg_tap_coeff[g];
+      assign packed_delays[DELAY_W*g +: DELAY_W]            = reg_tap_delay[g];
+      assign packed_coeffs_re[COEFF_WIDTH*g +: COEFF_WIDTH]  = reg_tap_coeff_re[g];
+      assign packed_coeffs_im[COEFF_WIDTH*g +: COEFF_WIDTH]  = reg_tap_coeff_im[g];
     end
   endgenerate
 
@@ -236,11 +239,12 @@ module rfnoc_block_sparse_fir #(
   integer k;
   initial begin
     for (k = 0; k < NUM_TAPS; k = k + 1) begin
-      reg_tap_delay[k] = 0;
-      reg_tap_coeff[k] = 0;
+      reg_tap_delay[k]    = 0;
+      reg_tap_coeff_re[k] = 0;
+      reg_tap_coeff_im[k] = 0;
     end
-    // Default: first tap at delay=0 with unity gain (impulse passthrough)
-    reg_tap_coeff[0] = {1'b0, {(COEFF_WIDTH-1){1'b1}}};  // Max positive
+    // Default: first tap at delay=0 with real unity gain (impulse passthrough)
+    reg_tap_coeff_re[0] = {1'b0, {(COEFF_WIDTH-1){1'b1}}};  // Max positive
   end
 
   // ---- Address decode (combinational) ----
@@ -256,16 +260,18 @@ module rfnoc_block_sparse_fir #(
   wire                          tap_valid   = in_tap_rgn & tap_aligned & (tap_idx < NUM_TAPS);
 
   // Register read/write logic
+  // Coefficient register is packed: {coeff_im[31:16], coeff_re[15:0]}
   always @(posedge ctrlport_clk) begin
     if (ctrlport_rst) begin
       m_ctrlport_resp_ack  <= 1'b0;
       m_ctrlport_resp_data <= 32'b0;
       for (k = 0; k < NUM_TAPS; k = k + 1) begin
-        reg_tap_delay[k] <= 0;
-        reg_tap_coeff[k] <= 0;
+        reg_tap_delay[k]    <= 0;
+        reg_tap_coeff_re[k] <= 0;
+        reg_tap_coeff_im[k] <= 0;
       end
       // Re-apply impulse default after reset
-      reg_tap_coeff[0] <= {1'b0, {(COEFF_WIDTH-1){1'b1}}};
+      reg_tap_coeff_re[0] <= {1'b0, {(COEFF_WIDTH-1){1'b1}}};
     end else begin
       // Default: no response
       m_ctrlport_resp_ack  <= 1'b0;
@@ -290,7 +296,7 @@ module rfnoc_block_sparse_fir #(
             if (tap_valid) begin
               m_ctrlport_resp_ack <= 1'b1;
               if (is_coeff)
-                m_ctrlport_resp_data <= {{(32-COEFF_WIDTH){1'b0}}, reg_tap_coeff[tap_idx]};
+                m_ctrlport_resp_data <= {reg_tap_coeff_im[tap_idx], reg_tap_coeff_re[tap_idx]};
               else
                 m_ctrlport_resp_data <= {{(32-DELAY_W){1'b0}}, reg_tap_delay[tap_idx]};
             end
@@ -302,10 +308,12 @@ module rfnoc_block_sparse_fir #(
       if (m_ctrlport_req_wr) begin
         if (tap_valid) begin
           m_ctrlport_resp_ack <= 1'b1;
-          if (is_coeff)
-            reg_tap_coeff[tap_idx] <= m_ctrlport_req_data[COEFF_WIDTH-1:0];
-          else
+          if (is_coeff) begin
+            reg_tap_coeff_re[tap_idx] <= m_ctrlport_req_data[COEFF_WIDTH-1:0];
+            reg_tap_coeff_im[tap_idx] <= m_ctrlport_req_data[16+COEFF_WIDTH-1:16];
+          end else begin
             reg_tap_delay[tap_idx] <= m_ctrlport_req_data[DELAY_W-1:0];
+          end
         end
       end
     end
@@ -313,7 +321,7 @@ module rfnoc_block_sparse_fir #(
 
 
   //---------------------------------------------------------------------------
-  // User Logic: Sparse FIR Filter (I and Q paths)
+  // User Logic: Complex Sparse FIR Filter
   //---------------------------------------------------------------------------
 
   // Pipeline input through a small FIFO (same pattern as shiftright block)
@@ -336,67 +344,39 @@ module rfnoc_block_sparse_fir #(
     .o_tready (pipe_in_tready)
   );
 
-  // Split IQ: I = upper 16 bits, Q = lower 16 bits
-  wire [IN_WIDTH-1:0] sample_i = pipe_in_tdata[2*IN_WIDTH-1 : IN_WIDTH];
-  wire [IN_WIDTH-1:0] sample_q = pipe_in_tdata[IN_WIDTH-1   : 0];
+  // FIR output wires (sc16)
+  wire [ITEM_W-1:0] fir_out_tdata;
+  wire              fir_out_tvalid, fir_out_tlast;
+  wire              fir_in_tready;
 
-  // FIR output wires
-  wire [OUT_WIDTH-1:0] fir_out_i, fir_out_q;
-  wire fir_out_i_valid, fir_out_i_tlast;
-  wire fir_out_q_valid, fir_out_q_tlast;
-  wire fir_in_i_ready, fir_in_q_ready;
-
-  // I-path sparse FIR
-  axi_sparse_fir #(
+  // Single complex FIR engine: processes sc16 directly with complex coefficients
+  axi_sparse_fir_complex #(
     .IN_WIDTH    (IN_WIDTH),
     .OUT_WIDTH   (OUT_WIDTH),
     .COEFF_WIDTH (COEFF_WIDTH),
     .NUM_TAPS    (NUM_TAPS),
     .MAX_DELAY   (MAX_DELAY)
-  ) sparse_fir_i (
-    .clk           (ce_clk),
-    .rst           (ctrlport_rst),
-    .s_axis_tdata  (sample_i),
-    .s_axis_tlast  (pipe_in_tlast),
-    .s_axis_tvalid (pipe_in_tvalid),
-    .s_axis_tready (fir_in_i_ready),
-    .m_axis_tdata  (fir_out_i),
-    .m_axis_tlast  (fir_out_i_tlast),
-    .m_axis_tvalid (fir_out_i_valid),
-    .m_axis_tready (s_out_payload_tready),
-    .tap_delays    (packed_delays),
-    .tap_coeffs    (packed_coeffs)
+  ) sparse_fir_complex_i (
+    .clk            (ce_clk),
+    .rst            (ctrlport_rst),
+    .s_axis_tdata   (pipe_in_tdata),
+    .s_axis_tlast   (pipe_in_tlast),
+    .s_axis_tvalid  (pipe_in_tvalid),
+    .s_axis_tready  (fir_in_tready),
+    .m_axis_tdata   (fir_out_tdata),
+    .m_axis_tlast   (fir_out_tlast),
+    .m_axis_tvalid  (fir_out_tvalid),
+    .m_axis_tready  (s_out_payload_tready),
+    .tap_delays     (packed_delays),
+    .tap_coeffs_re  (packed_coeffs_re),
+    .tap_coeffs_im  (packed_coeffs_im)
   );
 
-  // Q-path sparse FIR
-  axi_sparse_fir #(
-    .IN_WIDTH    (IN_WIDTH),
-    .OUT_WIDTH   (OUT_WIDTH),
-    .COEFF_WIDTH (COEFF_WIDTH),
-    .NUM_TAPS    (NUM_TAPS),
-    .MAX_DELAY   (MAX_DELAY)
-  ) sparse_fir_q (
-    .clk           (ce_clk),
-    .rst           (ctrlport_rst),
-    .s_axis_tdata  (sample_q),
-    .s_axis_tlast  (pipe_in_tlast),
-    .s_axis_tvalid (pipe_in_tvalid),
-    .s_axis_tready (fir_in_q_ready),
-    .m_axis_tdata  (fir_out_q),
-    .m_axis_tlast  (fir_out_q_tlast),
-    .m_axis_tvalid (fir_out_q_valid),
-    .m_axis_tready (s_out_payload_tready),
-    .tap_delays    (packed_delays),
-    .tap_coeffs    (packed_coeffs)
-  );
+  assign pipe_in_tready = fir_in_tready;
 
-  // Input ready: both I and Q paths must be ready
-  assign pipe_in_tready = fir_in_i_ready & fir_in_q_ready;
-
-  // Recombine IQ output
-  assign s_out_payload_tdata  = {fir_out_i, fir_out_q};
-  assign s_out_payload_tlast  = fir_out_i_tlast;
-  assign s_out_payload_tvalid = fir_out_i_valid;
+  assign s_out_payload_tdata  = fir_out_tdata;
+  assign s_out_payload_tlast  = fir_out_tlast;
+  assign s_out_payload_tvalid = fir_out_tvalid;
   assign s_out_payload_tkeep  = 1'b1;
 
   // Context passthrough (no modification to CHDR headers)

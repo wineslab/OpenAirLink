@@ -64,23 +64,44 @@ public:
 
     void set_tap_coeff(uint32_t tap_index, int16_t coeff) override
     {
-        _check_tap_index(tap_index);
-        // Sign-extend to 32-bit for poke, FPGA reads lower 16 bits
-        regs().poke32(REG_TAP_BASE + tap_index * REG_TAP_STRIDE + 0x04,
-                      static_cast<uint32_t>(static_cast<uint16_t>(coeff)));
+        // Real-only: set coeff_re = coeff, coeff_im = 0
+        set_tap_coeff_complex(tap_index, coeff, 0);
     }
 
     int16_t get_tap_coeff(uint32_t tap_index) override
     {
+        return get_tap_coeff_complex(tap_index).first;
+    }
+
+    void set_tap_coeff_complex(uint32_t tap_index, int16_t coeff_re, int16_t coeff_im) override
+    {
+        _check_tap_index(tap_index);
+        // Pack {coeff_im[31:16], coeff_re[15:0]} into one 32-bit register
+        uint32_t packed = (static_cast<uint32_t>(static_cast<uint16_t>(coeff_im)) << 16)
+                        | static_cast<uint32_t>(static_cast<uint16_t>(coeff_re));
+        regs().poke32(REG_TAP_BASE + tap_index * REG_TAP_STRIDE + 0x04, packed);
+    }
+
+    std::pair<int16_t, int16_t> get_tap_coeff_complex(uint32_t tap_index) override
+    {
         _check_tap_index(tap_index);
         uint32_t raw = regs().peek32(REG_TAP_BASE + tap_index * REG_TAP_STRIDE + 0x04);
-        return static_cast<int16_t>(raw & 0xFFFF);
+        int16_t coeff_re = static_cast<int16_t>(raw & 0xFFFF);
+        int16_t coeff_im = static_cast<int16_t>((raw >> 16) & 0xFFFF);
+        return {coeff_re, coeff_im};
     }
 
     void set_tap(uint32_t tap_index, uint32_t delay, int16_t coeff) override
     {
         set_tap_delay(tap_index, delay);
         set_tap_coeff(tap_index, coeff);
+    }
+
+    void set_tap_complex(uint32_t tap_index, uint32_t delay,
+                         int16_t coeff_re, int16_t coeff_im) override
+    {
+        set_tap_delay(tap_index, delay);
+        set_tap_coeff_complex(tap_index, coeff_re, coeff_im);
     }
 
     void set_all_taps(
@@ -94,6 +115,22 @@ public:
         }
         for (uint32_t i = 0; i < _num_taps; i++) {
             set_tap(i, delays[i], coeffs[i]);
+        }
+    }
+
+    void set_all_taps_complex(
+        const std::vector<uint32_t>& delays,
+        const std::vector<int16_t>& coeffs_re,
+        const std::vector<int16_t>& coeffs_im) override
+    {
+        if (delays.size() != _num_taps || coeffs_re.size() != _num_taps
+            || coeffs_im.size() != _num_taps) {
+            throw uhd::value_error(
+                "set_all_taps_complex: vectors must have exactly " +
+                std::to_string(_num_taps) + " elements");
+        }
+        for (uint32_t i = 0; i < _num_taps; i++) {
+            set_tap_complex(i, delays[i], coeffs_re[i], coeffs_im[i]);
         }
     }
 
