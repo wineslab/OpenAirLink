@@ -1,0 +1,47 @@
+{
+    "description": "Vehicular Doppler example: 60 km/h at 3.5 GHz, 4-tap multipath",
+    "duration": 5.0,
+    "update_interval": 0.002,
+    "shift_value": 4,
+    "channels": {
+        "dl0": {
+            "taps": [
+                {"delay": 0,   "amplitude": 0.9,  "fd_hz":  194.0, "phi0_deg": 0},
+                {"delay": 20,  "amplitude": 0.5,  "fd_hz": -120.0, "phi0_deg": 60},
+                {"delay": 80,  "amplitude": 0.3,  "fd_hz":  50.0,  "phi0_deg": 180},
+                {"delay": 200, "amplitude": 0.15, "fd_hz": -180.0, "phi0_deg": 300}
+            ]
+        },
+        "dl1": {
+            "taps": [
+                {"delay": 0,   "amplitude": 0.85, "fd_hz":  150.0, "phi0_deg": 30},
+                {"delay": 40,  "amplitude": 0.45, "fd_hz": -90.0,  "phi0_deg": 90},
+                {"delay": 120, "amplitude": 0.25, "fd_hz":  70.0,  "phi0_deg": 210}
+            ]
+        },
+        "dl2": {
+            "taps": [
+                {"delay": 0,   "amplitude": 0.8,  "fd_hz":  100.0, "phi0_deg": 15},
+                {"delay": 60,  "amplitude": 0.4,  "fd_hz": -160.0, "phi0_deg": 135}
+            ]
+        },
+        "ul0": {
+            "taps": [
+                {"delay": 0,   "amplitude": 0.9,  "fd_hz": -194.0, "phi0_deg": 0},
+                {"delay": 20,  "amplitude": 0.5,  "fd_hz":  120.0, "phi0_deg": 60}
+            ]
+        },
+        "ul1": {
+            "taps": [
+                {"delay": 0,   "amplitude": 0.85, "fd_hz": -150.0, "phi0_deg": 30},
+                {"delay": 40,  "amplitude": 0.45, "fd_hz":  90.0,  "phi0_deg": 90}
+            ]
+        },
+        "ul2": {
+            "taps": [
+                {"delay": 0,   "amplitude": 0.8,  "fd_hz": -100.0, "phi0_deg": 15},
+                {"delay": 60,  "amplitude": 0.4,  "fd_hz":  160.0, "phi0_deg": 135}
+            ]
+        }
+    }
+}

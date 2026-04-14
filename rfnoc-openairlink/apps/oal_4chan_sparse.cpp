@@ -57,6 +57,7 @@
 #include <boost/format.hpp>
 #include <boost/program_options.hpp>
 #include <chrono>
+#include <cmath>
 #include <csignal>
 #include <iostream>
 #include <fstream>
@@ -181,6 +182,135 @@ sparse_tap_config parse_sparse_taps(const std::string& input, size_t num_taps)
 }
 
 /****************************************************************************
+ * Doppler tap specification: per-tap delay, amplitude, Doppler shift, phase
+ ***************************************************************************/
+struct doppler_tap {
+    uint32_t delay;
+    double   amplitude;   // [0, 1]
+    double   fd_hz;       // Doppler shift in Hz
+    double   phi0;        // initial phase in radians
+};
+
+struct doppler_channel {
+    std::vector<doppler_tap> taps;
+    uint32_t shift_value = 0;
+};
+
+/****************************************************************************
+ * Compute complex tap coefficients at time t for a Doppler channel
+ ***************************************************************************/
+sparse_tap_config compute_doppler_taps(const doppler_channel& ch, double t, size_t num_taps)
+{
+    sparse_tap_config cfg;
+    for (const auto& tap : ch.taps) {
+        double phase = 2.0 * M_PI * tap.fd_hz * t + tap.phi0;
+        double re = tap.amplitude * std::cos(phase);
+        double im = tap.amplitude * std::sin(phase);
+
+        auto clamp16 = [](double v) -> int16_t {
+            double scaled = v * 32767.0;
+            if (scaled > 32767.0) scaled = 32767.0;
+            if (scaled < -32768.0) scaled = -32768.0;
+            return static_cast<int16_t>(std::round(scaled));
+        };
+
+        cfg.delays.push_back(tap.delay);
+        cfg.coeffs_re.push_back(clamp16(re));
+        cfg.coeffs_im.push_back(clamp16(im));
+    }
+    while (cfg.delays.size() < num_taps) {
+        cfg.delays.push_back(0);
+        cfg.coeffs_re.push_back(0);
+        cfg.coeffs_im.push_back(0);
+    }
+    return cfg;
+}
+
+/****************************************************************************
+ * Parse a Doppler channel spec string.
+ * Format: "delay:amp:fd:phi0 delay:amp:fd:phi0 ..."
+ *   delay  -- delay in samples
+ *   amp    -- amplitude [0,1]
+ *   fd     -- Doppler frequency in Hz
+ *   phi0   -- initial phase in degrees
+ *
+ * Example: "0:0.9:194:0 20:0.5:-120:60 80:0.3:50:180"
+ ***************************************************************************/
+doppler_channel parse_doppler_channel(const std::string& input)
+{
+    doppler_channel ch;
+    std::istringstream iss(space_trim(input));
+    std::string token;
+
+    while (iss >> token) {
+        doppler_tap tap;
+        std::vector<std::string> parts;
+        std::istringstream ts(token);
+        std::string part;
+        while (std::getline(ts, part, ':')) {
+            parts.push_back(part);
+        }
+        if (parts.size() < 4) {
+            throw std::runtime_error(
+                "Doppler tap requires 4 fields (delay:amp:fd:phi0), got: " + token);
+        }
+        tap.delay     = static_cast<uint32_t>(std::stoul(parts[0]));
+        tap.amplitude = std::stod(parts[1]);
+        tap.fd_hz     = std::stod(parts[2]);
+        tap.phi0      = std::stod(parts[3]) * M_PI / 180.0;
+        ch.taps.push_back(tap);
+    }
+    return ch;
+}
+
+/****************************************************************************
+ * Pre-loaded script row: all 6 channels parsed into memory
+ ***************************************************************************/
+struct script_row {
+    double time_index;
+    std::array<sparse_tap_config, NUM_TOTAL_CHANNELS> taps;
+    std::array<uint32_t, NUM_TOTAL_CHANNELS> shifts;
+};
+
+/****************************************************************************
+ * Pre-load entire script CSV into memory for fast playback
+ ***************************************************************************/
+std::vector<script_row> preload_script_csv(const std::string& path, size_t num_taps)
+{
+    std::vector<script_row> rows;
+    std::ifstream f(path);
+    if (!f.is_open()) {
+        throw std::runtime_error("Cannot open script CSV: " + path);
+    }
+
+    std::string index_str;
+    while (std::getline(f, index_str, ',')) {
+        index_str = space_trim(index_str);
+        if (index_str == "eos" || index_str.empty()) break;
+
+        script_row row;
+        row.time_index = std::stod(index_str);
+
+        std::string taps_str, shift_str;
+
+        for (size_t i = 0; i < NUM_TOTAL_CHANNELS - 1; i++) {
+            std::getline(f, taps_str, ',');
+            std::getline(f, shift_str, ',');
+            row.taps[i] = parse_sparse_taps(taps_str, num_taps);
+            row.shifts[i] = static_cast<uint32_t>(std::stoi(space_trim(shift_str)));
+        }
+        std::getline(f, taps_str, ',');
+        std::getline(f, shift_str);
+        row.taps[NUM_TOTAL_CHANNELS - 1] = parse_sparse_taps(taps_str, num_taps);
+        row.shifts[NUM_TOTAL_CHANNELS - 1] =
+            static_cast<uint32_t>(std::stoi(space_trim(shift_str)));
+
+        rows.push_back(std::move(row));
+    }
+    return rows;
+}
+
+/****************************************************************************
  * Parse comma-separated gains
  ***************************************************************************/
 std::vector<double> parse_gains(const std::string& input, size_t expected_count, double default_val)
@@ -300,6 +430,9 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
     size_t spp = 32;
     bool rx_timestamps = false;
     bool use_script = false;
+    bool use_doppler = false;
+    double doppler_update_t = 0.002;  // 2 ms default (500 Hz)
+    std::string doppler_spec_str;
 
     // Config file paths
     std::string root = CMAKE_SOURCE_DIR;
@@ -323,7 +456,15 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
         ("udt", po::value<double>(&update_t)->default_value(1), "Channel update period (s)")
         ("prt", po::value<double>(&print_t)->default_value(5), "Status print period (s)")
         ("script", "Use script mode")
+        ("fast-script", "Pre-load script CSV into memory for fast playback (ms-level updates)")
         ("scr-t", po::value<double>(&scruni_t)->default_value(0.2), "Script time resolution (s)")
+        ("doppler", po::value<std::string>(&doppler_spec_str)->implicit_value(""),
+            "Enable Doppler mode. Provide per-channel specs as comma-separated fields:\n"
+            "  ch0_taps,ch0_shift,ch1_taps,ch1_shift,...\n"
+            "Each tap: delay:amplitude:fd_hz:phi0_deg\n"
+            "Example: '0:0.9:194:0 20:0.5:-120:60,4,...'")
+        ("doppler-rate", po::value<double>(&doppler_update_t)->default_value(0.002),
+            "Doppler tap update interval in seconds (default: 0.002 = 2 ms)")
     ;
 
     po::variables_map vm;
@@ -336,6 +477,13 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
         std::cout << "\nCSV format per channel: delay0:coeff0 delay1:coeff1 ... , shift_value\n"
                   << "Complex coefficients: delay:re+imj (e.g. 100:23170+23170j)\n"
                   << "Example: 0:32767 100:8000-4000j 200:4000 0:0, 6\n"
+                  << "\nDoppler mode: --doppler 'taps_ch0,shift0,taps_ch1,shift1,...'\n"
+                  << "Tap format: delay:amplitude:fd_hz:phi0_deg (space-separated)\n"
+                  << "Example: --doppler '0:0.9:194:0 20:0.5:-120:60,4,0:1.0:0:0,0,...'\n"
+                  << "Use --doppler-rate to set update interval (default 2 ms)\n"
+                  << "\nFast script mode: --script --fast-script\n"
+                  << "Pre-loads CSV into memory for ms-level update playback.\n"
+                  << "Generate CSV with: channel_control/generate_doppler_script.py\n"
                   << std::endl;
         return ~0;
     }
@@ -480,10 +628,24 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
     radio1_ctrl->issue_stream_cmd(stream_cmd, 1);
 
     std::cout << std::endl;
-    std::cout << "**********************************************************" << std::endl;
-    std::cout << "*  OpenAirLink 4-Channel Sparse FIR Emulation Running    *" << std::endl;
-    std::cout << "*  1 gNB + 3 UE, " << num_taps << " taps, max_delay=" << max_delay << " samples  *" << std::endl;
-    std::cout << "**********************************************************" << std::endl;
+    std::cout << "***********************************************************" << std::endl;
+    std::cout << "*  OpenAirLink 4-Channel Sparse FIR Emulation Running     *" << std::endl;
+    std::cout << "*  1 gNB + 3 UE, " << num_taps << " taps, max_delay=" << max_delay
+              << " samples   *" << std::endl;
+    if (use_doppler) {
+        std::cout << "*  Mode: DOPPLER (update rate: "
+                  << (1.0 / doppler_update_t) << " Hz)" << std::string(
+                      std::max(0, 26 - static_cast<int>(
+                          std::to_string(static_cast<int>(1.0 / doppler_update_t)).size())), ' ')
+                  << "*" << std::endl;
+    }
+    std::cout << "***********************************************************" << std::endl;
+
+    // Determine operating mode
+    use_doppler = vm.count("doppler") > 0;
+    if (vm.count("script")) {
+        use_script = true;
+    }
 
     print_channel_status(sfir_dl_ctrl, shift_dl_ctrl, sfir_ul_ctrl, shift_ul_ctrl);
 
@@ -493,16 +655,9 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
     std::string taps_str;
     std::string bit_str;
 
-    if (vm.count("script")) {
-        use_script = true;
-        std::cout << "\nUsing Script Mode..." << std::endl;
-    } else {
-        std::cout << "\nUsing Manual Mode..." << std::endl;
-    }
-
     double elapsed_time = 0.0;
 
-    // Lambda to apply one channel config from CSV
+    // Lambda to apply one channel config
     auto apply_channel = [&](sparse_fir_block_control::sptr sfir,
                              shiftright_block_control::sptr shift,
                              const std::string& taps_s,
@@ -513,7 +668,182 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
         shift->set_shiftright_value(bit_shift);
     };
 
-    if (use_script && is_csv_valid(config_path_script)) {
+    // Lambda to apply a pre-parsed row to all 6 channels
+    auto apply_row = [&](const script_row& row) {
+        for (size_t i = 0; i < NUM_DL_CHANNELS; i++) {
+            sfir_dl_ctrl[i]->set_all_taps_complex(
+                row.taps[i].delays, row.taps[i].coeffs_re, row.taps[i].coeffs_im);
+            shift_dl_ctrl[i]->set_shiftright_value(row.shifts[i]);
+        }
+        for (size_t i = 0; i < NUM_UL_CHANNELS; i++) {
+            size_t idx = NUM_DL_CHANNELS + i;
+            sfir_ul_ctrl[i]->set_all_taps_complex(
+                row.taps[idx].delays, row.taps[idx].coeffs_re, row.taps[idx].coeffs_im);
+            shift_ul_ctrl[i]->set_shiftright_value(row.shifts[idx]);
+        }
+    };
+
+    // ======================================================================
+    // MODE 1: Doppler — real-time complex coefficient computation
+    // ======================================================================
+    if (use_doppler) {
+        std::cout << "\nUsing Doppler Mode (update rate: "
+                  << (1.0 / doppler_update_t) << " Hz)..." << std::endl;
+
+        // Parse Doppler channel specs from the --doppler argument
+        std::array<doppler_channel, NUM_TOTAL_CHANNELS> doppler_channels;
+        std::array<uint32_t, NUM_TOTAL_CHANNELS> doppler_shifts;
+
+        if (!doppler_spec_str.empty()) {
+            // Parse comma-separated: taps0,shift0,taps1,shift1,...
+            std::istringstream dss(doppler_spec_str);
+            for (size_t i = 0; i < NUM_TOTAL_CHANNELS; i++) {
+                std::string ch_taps, ch_shift;
+                std::getline(dss, ch_taps, ',');
+                std::getline(dss, ch_shift, ',');
+                doppler_channels[i] = parse_doppler_channel(ch_taps);
+                doppler_shifts[i] = static_cast<uint32_t>(std::stoi(space_trim(ch_shift)));
+            }
+        } else {
+            // Default: single-tap passthrough with no Doppler
+            std::cout << "No Doppler spec provided, using passthrough." << std::endl;
+            for (size_t i = 0; i < NUM_TOTAL_CHANNELS; i++) {
+                doppler_tap tap;
+                tap.delay = 0;
+                tap.amplitude = 1.0;
+                tap.fd_hz = 0.0;
+                tap.phi0 = 0.0;
+                doppler_channels[i].taps.push_back(tap);
+                doppler_shifts[i] = 0;
+            }
+        }
+
+        // Set initial shift values (they don't change during Doppler)
+        for (size_t i = 0; i < NUM_DL_CHANNELS; i++)
+            shift_dl_ctrl[i]->set_shiftright_value(doppler_shifts[i]);
+        for (size_t i = 0; i < NUM_UL_CHANNELS; i++)
+            shift_ul_ctrl[i]->set_shiftright_value(doppler_shifts[NUM_DL_CHANNELS + i]);
+
+        // Print Doppler config summary
+        double max_fd = 0.0;
+        for (size_t i = 0; i < NUM_TOTAL_CHANNELS; i++) {
+            for (const auto& tap : doppler_channels[i].taps) {
+                max_fd = std::max(max_fd, std::abs(tap.fd_hz));
+            }
+        }
+        std::cout << boost::format("  Max Doppler shift: %.1f Hz") % max_fd << std::endl;
+        double nyquist = 2.0 * max_fd;
+        double rate_hz = 1.0 / doppler_update_t;
+        if (rate_hz < nyquist) {
+            std::cout << boost::format("  WARNING: Update rate %.0f Hz < Nyquist %.0f Hz!")
+                         % rate_hz % nyquist << std::endl;
+        }
+
+        std::cout << "Press Enter to start Doppler emulation..." << std::endl;
+        std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
+
+        auto t_start = std::chrono::steady_clock::now();
+        auto t_next = t_start;
+        auto dt = std::chrono::duration_cast<std::chrono::steady_clock::duration>(
+            std::chrono::duration<double>(doppler_update_t));
+        size_t update_count = 0;
+        auto t_last_print = t_start;
+
+        while (!stop_signal_called) {
+            t_next += dt;
+            double t = std::chrono::duration<double>(
+                std::chrono::steady_clock::now() - t_start).count();
+
+            // Compute and apply complex coefficients for all channels
+            for (size_t i = 0; i < NUM_DL_CHANNELS; i++) {
+                auto cfg = compute_doppler_taps(doppler_channels[i], t, num_taps);
+                sfir_dl_ctrl[i]->set_all_taps_complex(cfg.delays, cfg.coeffs_re, cfg.coeffs_im);
+            }
+            for (size_t i = 0; i < NUM_UL_CHANNELS; i++) {
+                auto cfg = compute_doppler_taps(doppler_channels[NUM_DL_CHANNELS + i], t, num_taps);
+                sfir_ul_ctrl[i]->set_all_taps_complex(cfg.delays, cfg.coeffs_re, cfg.coeffs_im);
+            }
+
+            update_count++;
+
+            // Periodic status print
+            auto now = std::chrono::steady_clock::now();
+            if (std::chrono::duration<double>(now - t_last_print).count() >= print_t) {
+                double actual_rate = update_count /
+                    std::chrono::duration<double>(now - t_start).count();
+                std::cout << boost::format("\n[Doppler] t=%.3fs  updates=%zu  actual_rate=%.0f Hz")
+                             % t % update_count % actual_rate << std::endl;
+                print_channel_status(sfir_dl_ctrl, shift_dl_ctrl, sfir_ul_ctrl, shift_ul_ctrl);
+                t_last_print = now;
+            }
+
+            // Sleep until next update
+            std::this_thread::sleep_until(t_next);
+        }
+    }
+    // ======================================================================
+    // MODE 2: Fast Script — pre-loaded CSV with steady_clock timing
+    // ======================================================================
+    else if (use_script && vm.count("fast-script")) {
+        std::cout << "\nUsing Fast Script Mode (pre-loaded)..." << std::endl;
+
+        auto rows = preload_script_csv(config_path_script, num_taps);
+        std::cout << boost::format("Loaded %zu script rows into memory.") % rows.size()
+                  << std::endl;
+
+        if (rows.empty()) {
+            std::cout << "Error: Script CSV is empty." << std::endl;
+            stop_signal_called = true;
+        } else {
+            std::cout << boost::format("Time range: %.6f -- %.6f s")
+                         % rows.front().time_index % rows.back().time_index << std::endl;
+            std::cout << "Press Enter to start..." << std::endl;
+            std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
+
+            auto t_start = std::chrono::steady_clock::now();
+            size_t row_idx = 0;
+            auto t_last_print = t_start;
+
+            while (!stop_signal_called && row_idx < rows.size()) {
+                double t = std::chrono::duration<double>(
+                    std::chrono::steady_clock::now() - t_start).count();
+
+                if (t >= rows[row_idx].time_index) {
+                    apply_row(rows[row_idx]);
+                    row_idx++;
+
+                    auto now = std::chrono::steady_clock::now();
+                    if (std::chrono::duration<double>(now - t_last_print).count() >= print_t) {
+                        std::cout << boost::format("\n[FastScript] step=%zu/%zu  t=%.3fs")
+                                     % row_idx % rows.size() % t << std::endl;
+                        print_channel_status(sfir_dl_ctrl, shift_dl_ctrl,
+                                             sfir_ul_ctrl, shift_ul_ctrl);
+                        t_last_print = now;
+                    }
+                } else {
+                    // Busy-wait or short sleep for sub-ms resolution
+                    double dt_remaining = rows[row_idx].time_index - t;
+                    if (dt_remaining > 0.001) {
+                        std::this_thread::sleep_for(
+                            std::chrono::microseconds(
+                                static_cast<long>((dt_remaining - 0.0005) * 1e6)));
+                    }
+                }
+            }
+
+            if (row_idx >= rows.size()) {
+                std::cout << "\nEnd of script, keeping current config." << std::endl;
+                while (!stop_signal_called) {
+                    std::this_thread::sleep_for(100ms);
+                }
+            }
+        }
+    }
+    // ======================================================================
+    // MODE 3: Original Script — streaming CSV with sleep-based timing
+    // ======================================================================
+    else if (use_script && is_csv_valid(config_path_script)) {
+        std::cout << "\nUsing Script Mode..." << std::endl;
         config_in.open(config_path_script);
 
         int step = 0;
@@ -529,14 +859,11 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
 
         while (!stop_signal_called) {
             if (elapsed_time >= curr_index) {
-                // DL channels
                 for (size_t i = 0; i < NUM_DL_CHANNELS; i++) {
                     std::getline(config_in, taps_str, ',');
                     std::getline(config_in, bit_str, ',');
                     apply_channel(sfir_dl_ctrl[i], shift_dl_ctrl[i], taps_str, bit_str);
                 }
-
-                // UL channels (last without trailing comma)
                 for (size_t i = 0; i < NUM_UL_CHANNELS - 1; i++) {
                     std::getline(config_in, taps_str, ',');
                     std::getline(config_in, bit_str, ',');
@@ -570,23 +897,24 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
         }
         config_in.close();
     }
+    // ======================================================================
+    // MODE 4: Manual — poll CSV file periodically
+    // ======================================================================
     else {
         if (use_script) {
             std::cout << "Warning: Could not open script config, using manual mode." << std::endl;
         }
+        std::cout << "\nUsing Manual Mode..." << std::endl;
 
         while (!stop_signal_called) {
             if (is_csv_valid(config_path_manually)) {
                 config_in.open(config_path_manually);
 
-                // DL
                 for (size_t i = 0; i < NUM_DL_CHANNELS; i++) {
                     std::getline(config_in, taps_str, ',');
                     std::getline(config_in, bit_str, ',');
                     apply_channel(sfir_dl_ctrl[i], shift_dl_ctrl[i], taps_str, bit_str);
                 }
-
-                // UL
                 for (size_t i = 0; i < NUM_UL_CHANNELS - 1; i++) {
                     std::getline(config_in, taps_str, ',');
                     std::getline(config_in, bit_str, ',');
