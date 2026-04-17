@@ -739,6 +739,26 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
                          % rate_hz % nyquist << std::endl;
         }
 
+        // Pre-initialize all taps: write delays once, zero all coefficients.
+        // This avoids writing delays every update cycle (they don't change).
+        std::cout << "Initializing tap delays and zeroing coefficients..." << std::endl;
+        for (size_t i = 0; i < NUM_DL_CHANNELS; i++) {
+            auto cfg = compute_doppler_taps(doppler_channels[i], 0.0, num_taps);
+            sfir_dl_ctrl[i]->set_all_taps_complex(cfg.delays, cfg.coeffs_re, cfg.coeffs_im);
+        }
+        for (size_t i = 0; i < NUM_UL_CHANNELS; i++) {
+            auto cfg = compute_doppler_taps(doppler_channels[NUM_DL_CHANNELS + i], 0.0, num_taps);
+            sfir_ul_ctrl[i]->set_all_taps_complex(cfg.delays, cfg.coeffs_re, cfg.coeffs_im);
+        }
+
+        // Count active taps per channel for the status line
+        size_t total_active_taps = 0;
+        for (size_t i = 0; i < NUM_TOTAL_CHANNELS; i++)
+            total_active_taps += doppler_channels[i].taps.size();
+        size_t writes_per_update = total_active_taps; // 1 coeff poke32 per active tap
+        std::cout << boost::format("  Active taps: %zu across %d channels (%zu poke32/update)")
+                     % total_active_taps % NUM_TOTAL_CHANNELS % writes_per_update << std::endl;
+
         std::cout << "Press Enter to start Doppler emulation..." << std::endl;
         std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
 
@@ -749,19 +769,41 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
         size_t update_count = 0;
         auto t_last_print = t_start;
 
+        auto clamp16 = [](double v) -> int16_t {
+            double scaled = v * 32767.0;
+            if (scaled > 32767.0) scaled = 32767.0;
+            if (scaled < -32768.0) scaled = -32768.0;
+            return static_cast<int16_t>(std::round(scaled));
+        };
+
         while (!stop_signal_called) {
             t_next += dt;
             double t = std::chrono::duration<double>(
                 std::chrono::steady_clock::now() - t_start).count();
 
-            // Compute and apply complex coefficients for all channels
+            // Only write coefficients for active taps (skip zeros, skip delays).
+            // Delays were written once during initialization and don't change.
             for (size_t i = 0; i < NUM_DL_CHANNELS; i++) {
-                auto cfg = compute_doppler_taps(doppler_channels[i], t, num_taps);
-                sfir_dl_ctrl[i]->set_all_taps_complex(cfg.delays, cfg.coeffs_re, cfg.coeffs_im);
+                const auto& ch = doppler_channels[i];
+                for (size_t j = 0; j < ch.taps.size(); j++) {
+                    const auto& tap = ch.taps[j];
+                    double phase = 2.0 * M_PI * tap.fd_hz * t + tap.phi0;
+                    sfir_dl_ctrl[i]->set_tap_coeff_complex(
+                        static_cast<uint32_t>(j),
+                        clamp16(tap.amplitude * std::cos(phase)),
+                        clamp16(tap.amplitude * std::sin(phase)));
+                }
             }
             for (size_t i = 0; i < NUM_UL_CHANNELS; i++) {
-                auto cfg = compute_doppler_taps(doppler_channels[NUM_DL_CHANNELS + i], t, num_taps);
-                sfir_ul_ctrl[i]->set_all_taps_complex(cfg.delays, cfg.coeffs_re, cfg.coeffs_im);
+                const auto& ch = doppler_channels[NUM_DL_CHANNELS + i];
+                for (size_t j = 0; j < ch.taps.size(); j++) {
+                    const auto& tap = ch.taps[j];
+                    double phase = 2.0 * M_PI * tap.fd_hz * t + tap.phi0;
+                    sfir_ul_ctrl[i]->set_tap_coeff_complex(
+                        static_cast<uint32_t>(j),
+                        clamp16(tap.amplitude * std::cos(phase)),
+                        clamp16(tap.amplitude * std::sin(phase)));
+                }
             }
 
             update_count++;
