@@ -136,9 +136,39 @@ macro(RFNOC_REGISTER_IMAGE_CORE)
             "Invalid image core source file name: ${_rfnoc_image_core_SRC} (must end in `image_core`)")
     endif()
     if (_rfnoc_image_builder_exe)
-        message(STATUS "Adding image core target: ${_target_name}")
+        # Extract image_core_name from YAML for output naming; fall back to target name
+        file(READ ${CMAKE_CURRENT_SOURCE_DIR}/${_rfnoc_image_core_SRC} _yaml_raw)
+        string(REGEX MATCH "image_core_name:[ \t]*([^\n\r]+)" _ "${_yaml_raw}")
+        set(_image_core_name "${CMAKE_MATCH_1}")
+        string(STRIP "${_image_core_name}" _image_core_name)
+        if(NOT _image_core_name)
+            set(_image_core_name "${_target_name}")
+        endif()
+
+        set(_build_dir "${CMAKE_CURRENT_BINARY_DIR}/build-${_image_core_name}")
+        set(_archive_base "${CMAKE_BINARY_DIR}/bitstreams")
+
+        message(STATUS "Adding image core target: ${_target_name}  (image: ${_image_core_name})")
         add_custom_target(${_target_name}
-            COMMAND ${_rfnoc_image_builder_exe} -F ${UHD_FPGA_DIR} -y ${CMAKE_CURRENT_SOURCE_DIR}/${_rfnoc_image_core_SRC} -I ${CMAKE_SOURCE_DIR} --ignore-warnings
+            COMMAND ${_rfnoc_image_builder_exe} -F ${UHD_FPGA_DIR}
+                    -y ${CMAKE_CURRENT_SOURCE_DIR}/${_rfnoc_image_core_SRC}
+                    -I ${CMAKE_SOURCE_DIR} --ignore-warnings
+            COMMAND ${CMAKE_COMMAND} -E make_directory "${_archive_base}"
+            COMMAND bash -c
+                "TS=$$(date +%Y-%m-%d_%H%M%S) && \
+                 OUTDIR=${_archive_base}/$${TS}_${_image_core_name} && \
+                 mkdir -p $$OUTDIR && \
+                 cp ${_build_dir}/x4xx.bit $$OUTDIR/${_image_core_name}.bit && \
+                 gcc -o $$OUTDIR/${_image_core_name}.dts \
+                     -C -E -I ${UHD_FPGA_DIR}/usrp3/top/x400/dts \
+                     -nostdinc -undef -x assembler-with-cpp -D__DTS__ \
+                     ${_build_dir}/device_tree.dts && \
+                 echo '--------------------------------------------' && \
+                 echo 'Bitstream + preprocessed DTS archived to:' && \
+                 echo \"  $$OUTDIR\" && \
+                 echo 'Ready for: uhd_image_loader --args type=x4xx,addr=<IP> --fpga-path' && \
+                 echo \"  $$OUTDIR/${_image_core_name}.bit\""
+            VERBATIM
         )
     endif()
 endmacro()

@@ -48,7 +48,7 @@ copyright: >-
 license: >-
   SPDX-License-Identifier: LGPL-3.0-or-later
 version: '1.0'
-image_core_name: usrp_x410_fpga_OAL_SPARSE
+image_core_name: lchem_x410_4ch_csfir_16taps
 chdr_width: 64
 device: 'x410'
 default_target: 'X410'
