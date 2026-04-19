@@ -168,7 +168,6 @@ macro(RFNOC_REGISTER_IMAGE_CORE)
                  echo \"  $$OUTDIR\" && \
                  echo 'Ready for: uhd_image_loader --args type=x4xx,addr=<IP> --fpga-path' && \
                  echo \"  $$OUTDIR/${_image_core_name}.bit\""
-            VERBATIM
         )
     endif()
 endmacro()
