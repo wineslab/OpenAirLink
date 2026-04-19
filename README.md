@@ -11,60 +11,6 @@ To rebuild FPGA image:
 - [Vivado 2021.1](https://www.xilinx.com/support/download/index.html/content/xilinx/en/downloadNav/vivado-design-tools/archive.html)
 - [AR76780 Patch](https://support.xilinx.com/s/article/76780?language=en_US)
 
-## Installation
-Clone this repository:
-```
-git clone https://github.com/N3Martix/OpenAirLink.git
-```
-Use following steps to install OpenAirLink:
-```
-cd ~/OpenAirLink/rfnoc-openairlink
-mkdir build && cd build
-cmake -DUHD_FPGA_DIR=<path-to-uhd>/uhd/fpga/ ../
-make
-sudo make install
-sudo ldconfig
-```
-Load FPGA image to your USRP:
-```
-cd ~/OpenAirLink/fpga-openairlink
-uhd_image_loader --args="type=x400" --fpga-path="usrp_x410_fpga_UC_200.bit"
-```
-To check installation, run:
-```
-LD_PRELOAD=/usr/local/lib/librfnoc-openairlink.so uhd_usrp_probe
-```
-If OpenAirLink is correctly installed, the output should look like:
-```
-|     _____________________________________________________
-   |    /
-   |   |       RFNoC blocks on this device:
-   ...
-   |   |   * 0/FIR#0
-   |   |   * 0/FIR#1
-   |   |   * 0/Shiftright#0
-   |   |   * 0/Shiftright#1
-   ...
-```
-
-## Usage
-**1. Lanuch OpenAirLink**
-
-Lanuch with follow command:
-```
-cd ~/OpenAirLink/rfnoc-openairlink/build
-LD_PRELOAD=/usr/local/lib/librfnoc-openairlink.so ./apps/oal_single
-```
-OpenAirLink also supports two channels running independently and simultaneously. To do so, replace `oal_single` with `oal_dual`.
-
-The OpenAirLink's channel configuration has two models:
-
-- **Manually**: By default, OpenAirLink periodically scans the configuration file in the `channel_control/` folder to update the channel. The frequency of updates can be adjusted using the `--udt` argument.
-- **Script**: The configuration is sent to the USRP if the emulator's running time exceeds its time index. To run the script mode, use the argument `--script`.
-
-**2. Channel coefficient generation**
- TODO
-
 
 ## Synthesizing a New Image
 
@@ -98,6 +44,32 @@ build/bitstreams/<YYYY-MM-DD_HHMMSS>_lchem_x410_4ch_csfir_16taps/
 
 Both files share the same base name so `uhd_image_loader` picks up the DTS automatically.
 
+### DTS post-processing
+
+The X410 firmware requires a Device Tree Source (`.dts`) file alongside every `.bit` bitstream. The DTS describes the FPGA component versions to the UHD driver; without it, `uhd_image_loader` prints "no component version information" and the loaded image may not enumerate correctly.
+
+The raw `device_tree.dts` produced by `rfnoc_image_builder` uses C preprocessor `#include` directives and macros, so it must be run through the C preprocessor before it can be used. The build system does this automatically as a post-build step, but if you need to do it manually (e.g. after a bare Vivado synthesis run):
+
+```bash
+IMAGE_NAME=usrp_x410_lchem_4ch_csfir_16taps
+BUILD_DIR=rfnoc-openairlink/build/icores/build-${IMAGE_NAME}
+UHD_DTS_DIR=/path/to/uhd/fpga/usrp3/top/x400/dts
+
+gcc -o ${BUILD_DIR}/${IMAGE_NAME}.dts \
+    -C -E -I ${UHD_DTS_DIR} \
+    -nostdinc -undef -x assembler-with-cpp -D__DTS__ \
+    ${BUILD_DIR}/device_tree.dts
+```
+
+The flags do the following:
+- `-C -E` — run only the C preprocessor and keep comments
+- `-I ${UHD_DTS_DIR}` — find the Ettus-supplied DTS include files
+- `-nostdinc -undef` — prevent system headers and predefined macros from leaking in
+- `-x assembler-with-cpp` — treat the input as assembly with CPP (standard for DTS)
+- `-D__DTS__` — activates the DTS-specific branches inside the include files
+
+The output `.dts` must sit next to the `.bit` file with the same base name before calling `uhd_image_loader`.
+
 ### Flashing to the X410
 
 ```bash
@@ -105,6 +77,138 @@ uhd_image_loader --args "type=x4xx,addr=<X410_IP>" \
   --fpga-path build/bitstreams/<timestamp>_lchem_x410_4ch_csfir_16taps/lchem_x410_4ch_csfir_16taps.bit
 # Reboot the X410 after loading
 ```
+
+## Building the host library and applications
+
+After synthesising the FPGA image (or independently), build the host-side block controllers and emulator application:
+
+```bash
+cd rfnoc-openairlink
+mkdir -p build && cd build
+cmake -DUHD_FPGA_DIR=/path/to/uhd/fpga/ ../
+make -j$(nproc)
+sudo make install
+sudo ldconfig
+```
+
+This produces `librfnoc-openairlink.so` (block controllers) and the emulator binaries under `build/apps/`. The install step copies the library to `/usr/local/lib/` so `LD_PRELOAD` is no longer needed.
+
+## Running the emulator
+
+After flashing and rebooting the X410, run the 4-channel sparse FIR emulator from the build directory:
+
+```bash
+LD_PRELOAD=/usr/local/lib/librfnoc-openairlink.so \
+  ./apps/oal_4chan_sparse \
+  --args "addr=<X410_IP>,clock_source=external,time_source=external" \
+  --gnb-freq <center_freq_hz> \
+  --ue-freq <center_freq_hz> \
+  --rx-gains "30,30,30,30" \
+  --tx-gains "30,30,30,30"
+```
+
+If the library is installed system-wide (`sudo make install && sudo ldconfig`), the `LD_PRELOAD` can be omitted.
+
+Key options:
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--gnb-freq` | 3619200000 | gNB RX/TX center frequency (Hz) |
+| `--ue-freq` | 3619200000 | UE RX/TX center frequency (Hz) |
+| `--rx-gains` | — | Per-port RX gains: gNB,UE1,UE2,UE3 |
+| `--tx-gains` | — | Per-port TX gains: gNB,UE1,UE2,UE3 |
+| `--udt` | 1 | Channel CSV poll interval (s) |
+| `--script` | — | Use time-indexed script CSV instead of manual |
+| `--doppler` | — | Enable Doppler mode (see below) |
+
+**Port mapping:** inject your tone into **DB0 RX0** (gNB input) and probe **DB0 TX1** for the first downlink output (DL0 → UE1).
+
+To verify the blocks are enumerated correctly before running:
+
+```bash
+LD_PRELOAD=/usr/local/lib/librfnoc-openairlink.so \
+  uhd_usrp_probe --tree --args "addr=<X410_IP>"
+```
+
+You should see `SparseFIR#0`–`#5`, `Shiftright#0`–`#5`, `SplitStream#0`–`#1`, and `AddSub#0`–`#1` in the block tree.
+
+## Doppler emulation
+
+The emulator supports Doppler effect emulation by rapidly updating complex-coefficient sparse FIR taps. Each tap has a programmable delay, amplitude, Doppler frequency, and initial phase; the host computes time-varying complex coefficients and pushes them to the FPGA at up to ~500–1000 Hz.
+
+**Supported Doppler range:**
+
+| Scenario | Speed | f_d @ 3.5 GHz | Supported |
+|----------|-------|----------------|-----------|
+| Pedestrian | 3 km/h | 9.7 Hz | Yes |
+| Vehicular | 60 km/h | 194 Hz | Yes |
+| Fast vehicular | 120 km/h | 389 Hz | Borderline |
+| High-speed rail | 350 km/h | 1134 Hz | No (under-sampled) |
+
+Max f_d is ~250 Hz at the default 2 ms update rate (`--doppler-rate 0.002`), or ~500 Hz at 1 ms. Minimum is effectively 0 Hz.
+
+**Quick start — single-tap vehicular (f_d = 194 Hz):**
+
+```bash
+LD_PRELOAD=/usr/local/lib/librfnoc-openairlink.so \
+  ./apps/oal_4chan_sparse \
+  --args "addr=<X410_IP>,clock_source=external,time_source=external" \
+  --gnb-freq <freq_hz> --ue-freq <freq_hz> \
+  --rx-gains "30,30,30,30" --tx-gains "30,30,30,30" \
+  --doppler '0:0.9:194:0,4,0:0.9:194:0,4,0:0.9:194:0,4,0:0.9:-194:0,4,0:0.9:-194:0,4,0:0.9:-194:0,4' \
+  --doppler-rate 0.002
+```
+
+The `--doppler` string has 12 comma-separated fields (6 channels × tap-spec + shift). Each tap is `delay:amplitude:fd_hz:phi0_deg`. Multiple taps per channel are space-separated. Downlink channels conventionally get positive f_d, uplink negative.
+
+**Pre-generated script mode** (ms-level updates, lower CPU overhead):
+
+```bash
+cd channel_control
+python3 generate_doppler_script.py --preset vehicular --num-taps 16 \
+    -o chan_4chan_sparse_script.csv
+
+./apps/oal_4chan_sparse --args "..." --script --fast-script
+```
+
+Built-in presets: `pedestrian`, `vehicular`, `high-speed`, `static`.
+
+### Doppler spectral shift verification (CW tone)
+
+To directly verify the output spectrum is shifted by f_d Hz, switch the TX X410 to a CW tone and run the spectral verification tests.
+
+**On the TX X410 (`x410_1`):**
+
+```bash
+python3 tx_sounder_x410_sa.py \
+  --waveform cw \
+  --cw-offset 1000000 \
+  --freq 3.58e9 \
+  --gain 30
+```
+
+This transmits a single tone at `--freq + --cw-offset` (e.g. 3.581 GHz) continuously. `--freq` must match `--gnb-freq` on the emulator.
+
+**On the emulator X410, restart with `--doppler`:**
+
+```bash
+LD_PRELOAD=/usr/local/lib/librfnoc-openairlink.so \
+  ./apps/oal_4chan_sparse \
+  --args "addr=127.0.0.1,clock_source=external,time_source=external" \
+  --gnb-freq 3.58e9 --ue-freq 3.58e9 \
+  --rx-gains "30,30,30,30" --tx-gains "30,30,30,30" \
+  --doppler '0:0.9:200:0,4,0:0.9:200:0,4,0:0.9:200:0,4,0:0.9:-200:0,4,0:0.9:-200:0,4,0:0.9:-200:0,4' \
+  --doppler-rate 0.002
+```
+
+**Run the spectral verification suite:**
+
+```bash
+cd LCHEM_Sounder
+./run_verification_doppler.sh --enable-spectral --emulator-freq 3580000000
+```
+
+The post-processor multiplies the reference and emulated captures to form a beat signal at exactly f_d Hz, then FFTs it to measure the actual frequency shift. Results appear in `doppler_spectral_shift.pdf` and Section 5 of `doppler_report.txt`. Frequency resolution is ~50 Hz at the default 20 ms capture time, so tests use f_d ≥ 100 Hz.
 
 ### Changing image parameters
 
@@ -127,59 +231,8 @@ After editing, update `image_core_name` to reflect the new configuration (e.g. `
 ## Currently Supported Hardware
 1. [NI USRP X410](https://www.ettus.com/all-products/usrp-x410/)
 
-## X410 Quick Start
-
-**Build FPGA Image:**
-```bash
-cd rfnoc-openairlink/build
-cmake -DUHD_FPGA_DIR=/path/to/uhd/fpga/ ../
-make x410_rfnoc_image_core
-```
-The bitstream will be at: `icores/build-x410_rfnoc_image_core/x4xx.bit`
-
-**Load to X410:**
-```bash
-uhd_image_loader --args="type=x4xx,addr=<X410_IP>" --fpga-path="x4xx.bit"
-reboot  # Reboot X410 after loading
-```
-
-**Hardware Connections:**
-- **Downlink:** TX → X410 Port A (DB0) RX → X410 Port B (DB1) TX → RX
-- **Uplink:** TX → X410 Port B (DB1) RX → X410 Port A (DB0) TX → RX
-
-**Channel Updates:**
-Edit `channel_control/chan_singel_manually.csv` while emulator runs:
-```
-32767 0 0 0 ... 0, 6    # Format: FIR_taps (41 int16 values), shift_value
-```
-- FIR taps: Channel impulse response (from ray tracing)
-- Shift value: Attenuation (4-7 typical)
-
-**Configuration:**
-- Manual mode: Real-time updates via CSV editing
-- Script mode: Time-based channel changes with `--script` flag
-- Update rate: Adjust with `--udt <seconds>` argument
-
-**Run the Emulation:**
-```bash
-cd ~/OpenAirLink/rfnoc-openairlink/build
-LD_PRELOAD=/usr/local/lib/librfnoc-openairlink.so ./apps/oal_single
-```
 
 ## X410 4-Channel Mode (1 gNB + 3 UEs)
-
-**Build FPGA Image:**
-```bash
-cd rfnoc-openairlink/build
-cmake -DUHD_FPGA_DIR=/path/to/uhd/fpga/ ../
-make x410_rfnoc_image_core_4chan
-```
-
-**Load to X410:**
-```bash
-uhd_image_loader --args="type=x4xx,addr=<X410_IP>" --fpga-path="icores/build-x410_rfnoc_image_core_4chan/x4xx.bit"
-# Reboot X410 after loading
-```
 
 **Port Mapping:**
 | Port | Radio | Role |
@@ -188,17 +241,3 @@ uhd_image_loader --args="type=x4xx,addr=<X410_IP>" --fpga-path="icores/build-x41
 | DB0 RX1 | radio0:1 | UE1 |
 | DB1 RX0 | radio1:0 | UE2 |
 | DB1 RX1 | radio1:1 | UE3 |
-
-**Run the Emulator:**
-```bash
-LD_PRELOAD=/usr/local/lib/librfnoc-openairlink.so ./apps/oal_4chan
-```
-
-**Per-Port Gain Control:**
-```bash
-# Format: gNB,UE1,UE2,UE3
-./apps/oal_4chan --rx-gains "0,10,15,20" --tx-gains "5,10,10,10"
-```
-
-**Channel Configuration:**
-Edit `channel_control/chan_4chan_manually.csv` while running (6 channels: 3 DL + 3 UL)
