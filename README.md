@@ -66,6 +66,64 @@ The OpenAirLink's channel configuration has two models:
  TODO
 
 
+## Synthesizing a New Image
+
+### Prerequisites
+
+- Vivado 2021.1 with the [AR76780 patch](https://support.xilinx.com/s/article/76780)
+- CMake configured with `UHD_FPGA_DIR` pointing to the UHD FPGA source tree
+
+### Available targets
+
+| CMake target | Filter type | Description |
+|---|---|---|
+| `x410_rfnoc_image_core_4chan_sparse` | Complex sparse FIR | 4-ch (1 gNB + 3 UEs), programmable taps — **primary target** |
+| `x410_rfnoc_image_core_4chan` | Dense FIR | 4-ch, fixed 41-tap FIR |
+
+### Build
+
+```bash
+cd rfnoc-openairlink/build
+cmake -DUHD_FPGA_DIR=/path/to/uhd/fpga/ ../
+make x410_rfnoc_image_core_4chan_sparse
+```
+
+Vivado runs (~1 hour). On success the build automatically archives the outputs:
+
+```
+build/bitstreams/<YYYY-MM-DD_HHMMSS>_lchem_x410_4ch_csfir_16taps/
+  lchem_x410_4ch_csfir_16taps.bit   ← flash with uhd_image_loader
+  lchem_x410_4ch_csfir_16taps.dts   ← preprocessed DTS, required alongside .bit
+```
+
+Both files share the same base name so `uhd_image_loader` picks up the DTS automatically.
+
+### Flashing to the X410
+
+```bash
+uhd_image_loader --args "type=x4xx,addr=<X410_IP>" \
+  --fpga-path build/bitstreams/<timestamp>_lchem_x410_4ch_csfir_16taps/lchem_x410_4ch_csfir_16taps.bit
+# Reboot the X410 after loading
+```
+
+### Changing image parameters
+
+Open `icores/x410_rfnoc_image_core_4chan_sparse.yml`. The key fields are:
+
+```yaml
+image_core_name: lchem_x410_4ch_csfir_16taps   # rename when you change tap count
+...
+# Under each block instance (sfir_dl0 … sfir_ul2):
+parameters:
+  NUM_TAPS: 16      # number of sparse FIR taps (must match across all 6 instances)
+  MAX_DELAY: 1024   # circular buffer depth in samples (~4.17 µs at 245.76 MHz)
+  COEFF_WIDTH: 16   # coefficient bit width
+```
+
+After editing, update `image_core_name` to reflect the new configuration (e.g. `lchem_x410_4ch_csfir_32taps`), re-run `cmake ../` so it picks up the new name, then rebuild.
+
+> **Note on timing:** NUM_TAPS=16 is the validated maximum that meets timing at 266 MHz on the X410. NUM_TAPS=32 failed with WNS −0.129 ns due to routing congestion.
+
 ## Currently Supported Hardware
 1. [NI USRP X410](https://www.ettus.com/all-products/usrp-x410/)
 
