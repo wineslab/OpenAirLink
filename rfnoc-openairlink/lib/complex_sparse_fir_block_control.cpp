@@ -13,30 +13,41 @@
     If not, see <https://www.gnu.org/licenses/>.
 **/
 
-#include <rfnoc/openairlink/sparse_fir_block_control.hpp>
+#include <rfnoc/openairlink/complex_sparse_fir_block_control.hpp>
 
 #include <uhd/rfnoc/defaults.hpp>
 #include <uhd/rfnoc/registry.hpp>
 #include <uhd/exception.hpp>
+#include <uhd/utils/log.hpp>
 
 using namespace rfnoc::openairlink;
 using namespace uhd::rfnoc;
 
-// Register addresses (must match rfnoc_sparse_fir_regs.vh)
-const uint32_t sparse_fir_block_control::REG_COMPAT_NUM = 0x00;
-const uint32_t sparse_fir_block_control::REG_NUM_TAPS   = 0x04;
-const uint32_t sparse_fir_block_control::REG_MAX_DELAY  = 0x08;
-const uint32_t sparse_fir_block_control::REG_TAP_BASE   = 0x10;
-const uint32_t sparse_fir_block_control::REG_TAP_STRIDE = 0x08;
+// Register addresses (must match rfnoc_complex_sparse_fir_regs.vh)
+const uint32_t complex_sparse_fir_block_control::REG_COMPAT_NUM = 0x00;
+const uint32_t complex_sparse_fir_block_control::REG_NUM_TAPS   = 0x04;
+const uint32_t complex_sparse_fir_block_control::REG_MAX_DELAY  = 0x08;
+const uint32_t complex_sparse_fir_block_control::REG_TAP_BASE   = 0x10;
+const uint32_t complex_sparse_fir_block_control::REG_TAP_STRIDE = 0x08;
 
-class sparse_fir_block_control_impl : public sparse_fir_block_control
+class complex_sparse_fir_block_control_impl : public complex_sparse_fir_block_control
 {
 public:
-    RFNOC_BLOCK_CONSTRUCTOR(sparse_fir_block_control)
+    RFNOC_BLOCK_CONSTRUCTOR(complex_sparse_fir_block_control)
     {
         // Cache compile-time constants from FPGA
         _num_taps  = regs().peek32(REG_NUM_TAPS);
         _max_delay = regs().peek32(REG_MAX_DELAY);
+
+        // Expose tap count and max delay in the UHD property tree so they
+        // appear under this block's path in `uhd_usrp_probe --tree`.
+        auto tree_root = get_block_id().get_tree_root();
+        get_tree()->create<uint32_t>(tree_root / "num_taps").set(_num_taps);
+        get_tree()->create<uint32_t>(tree_root / "max_delay").set(_max_delay);
+
+        UHD_LOGGER_INFO("ComplexSparseFIR")
+            << get_unique_id() << ": Complex Sparse FIR Filter with "
+            << _num_taps << " taps (max delay " << _max_delay << " samples)";
     }
 
     uint32_t get_num_taps() override
@@ -157,6 +168,6 @@ private:
     }
 };
 
-// NOC_ID must match the one in noc_shell_sparse_fir.v (0x5F1A0004)
+// NOC_ID must match the one in noc_shell_complex_sparse_fir.v (0x5F1A0004)
 UHD_RFNOC_BLOCK_REGISTER_DIRECT(
-    sparse_fir_block_control, 0x5F1A0004, "SparseFIR", CLOCK_KEY_GRAPH, "bus_clk")
+    complex_sparse_fir_block_control, 0x5F1A0004, "ComplexSparseFIR", CLOCK_KEY_GRAPH, "bus_clk")

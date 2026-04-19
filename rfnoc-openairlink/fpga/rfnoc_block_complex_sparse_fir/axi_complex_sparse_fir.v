@@ -3,11 +3,11 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 //
-// Module: axi_sparse_fir
+// Module: axi_complex_sparse_fir
 //
 // Description:
 //
-//   Sparse FIR filter engine for channel emulation. Instead of a dense
+//   Complex Sparse FIR filter engine for channel emulation. Instead of a dense
 //   systolic FIR with one DSP48 per tap position, this module uses a
 //   BRAM-based circular delay line with NUM_TAPS independently-addressable
 //   taps. Each tap reads from the delay line at a runtime-programmable
@@ -75,7 +75,7 @@
 
 `default_nettype none
 
-module axi_sparse_fir #(
+module axi_complex_sparse_fir #(
   parameter IN_WIDTH    = 16,
   parameter OUT_WIDTH   = 16,
   parameter COEFF_WIDTH = 16,

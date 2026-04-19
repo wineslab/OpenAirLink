@@ -3,11 +3,11 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 //
-// Module: rfnoc_block_sparse_fir
+// Module: rfnoc_block_complex_sparse_fir
 //
 // Description:
 //
-//   Sparse FIR filter RFNoC block for channel emulation. Processes sc16
+//   Complex Sparse FIR filter RFNoC block for channel emulation. Processes sc16
 //   (signed complex 16-bit) IQ samples. Each IQ sample contains I in the
 //   upper 16 bits and Q in the lower 16 bits.
 //
@@ -35,7 +35,7 @@
 `default_nettype none
 
 
-module rfnoc_block_sparse_fir #(
+module rfnoc_block_complex_sparse_fir #(
   parameter [9:0] THIS_PORTID = 10'd0,
   parameter       CHDR_W      = 64,
   parameter [5:0] MTU         = 10,
@@ -72,7 +72,7 @@ module rfnoc_block_sparse_fir #(
   input  wire                   m_rfnoc_ctrl_tready
 );
 
-  `include "rfnoc_sparse_fir_regs.vh"
+  `include "rfnoc_complex_sparse_fir_regs.vh"
 
   localparam COMPAT_MAJOR = 16'h2;  // v2: complex coefficients
   localparam COMPAT_MINOR = 16'h0;
@@ -133,11 +133,11 @@ module rfnoc_block_sparse_fir #(
   // NoC Shell
   //---------------------------------------------------------------------------
 
-  noc_shell_sparse_fir #(
+  noc_shell_complex_sparse_fir #(
     .CHDR_W      (CHDR_W),
     .THIS_PORTID (THIS_PORTID),
     .MTU         (MTU)
-  ) noc_shell_sparse_fir_i (
+  ) noc_shell_complex_sparse_fir_i (
     // Framework Interface
     .rfnoc_chdr_clk      (rfnoc_chdr_clk),
     .rfnoc_ctrl_clk      (rfnoc_ctrl_clk),
@@ -221,7 +221,7 @@ module rfnoc_block_sparse_fir #(
   reg [COEFF_WIDTH-1:0]  reg_tap_coeff_re [0:NUM_TAPS-1];
   reg [COEFF_WIDTH-1:0]  reg_tap_coeff_im [0:NUM_TAPS-1];
 
-  // Pack tap config for the axi_sparse_fir_complex core
+  // Pack tap config for the axi_complex_sparse_fir_complex core
   wire [NUM_TAPS*DELAY_W-1:0]      packed_delays;
   wire [NUM_TAPS*COEFF_WIDTH-1:0]  packed_coeffs_re;
   wire [NUM_TAPS*COEFF_WIDTH-1:0]  packed_coeffs_im;
@@ -251,9 +251,9 @@ module rfnoc_block_sparse_fir #(
   // REG_TAP_STRIDE = 0x08 = 8, so dividing by stride is a right-shift by 3,
   // and the intra-tap offset is bits [2:0]. Bit 2 selects delay vs coeff,
   // bits [1:0] must be zero for a valid 32-bit-aligned access.
-  wire [SPARSE_FIR_ADDR_W-1:0] local_addr  = m_ctrlport_req_addr[SPARSE_FIR_ADDR_W-1:0];
-  wire                          in_tap_rgn  = (local_addr >= REG_TAP_BASE[SPARSE_FIR_ADDR_W-1:0]);
-  wire [SPARSE_FIR_ADDR_W-1:0] tap_offset  = local_addr - REG_TAP_BASE[SPARSE_FIR_ADDR_W-1:0];
+  wire [COMPLEX_SPARSE_FIR_ADDR_W-1:0] local_addr  = m_ctrlport_req_addr[COMPLEX_SPARSE_FIR_ADDR_W-1:0];
+  wire                          in_tap_rgn  = (local_addr >= REG_TAP_BASE[COMPLEX_SPARSE_FIR_ADDR_W-1:0]);
+  wire [COMPLEX_SPARSE_FIR_ADDR_W-1:0] tap_offset  = local_addr - REG_TAP_BASE[COMPLEX_SPARSE_FIR_ADDR_W-1:0];
   wire [4:0]                    tap_idx     = tap_offset[7:3]; // divide by 8
   wire                          is_coeff    = tap_offset[2];   // 0 = delay, 1 = coeff
   wire                          tap_aligned = ~(|tap_offset[1:0]); // bits [1:0] == 0
@@ -280,15 +280,15 @@ module rfnoc_block_sparse_fir #(
       // Handle reads
       if (m_ctrlport_req_rd) begin
         case (local_addr)
-          REG_COMPAT_NUM[SPARSE_FIR_ADDR_W-1:0]: begin
+          REG_COMPAT_NUM[COMPLEX_SPARSE_FIR_ADDR_W-1:0]: begin
             m_ctrlport_resp_data <= {COMPAT_MAJOR, COMPAT_MINOR};
             m_ctrlport_resp_ack  <= 1'b1;
           end
-          REG_NUM_TAPS[SPARSE_FIR_ADDR_W-1:0]: begin
+          REG_NUM_TAPS[COMPLEX_SPARSE_FIR_ADDR_W-1:0]: begin
             m_ctrlport_resp_data <= NUM_TAPS;
             m_ctrlport_resp_ack  <= 1'b1;
           end
-          REG_MAX_DELAY[SPARSE_FIR_ADDR_W-1:0]: begin
+          REG_MAX_DELAY[COMPLEX_SPARSE_FIR_ADDR_W-1:0]: begin
             m_ctrlport_resp_data <= MAX_DELAY;
             m_ctrlport_resp_ack  <= 1'b1;
           end
@@ -321,7 +321,7 @@ module rfnoc_block_sparse_fir #(
 
 
   //---------------------------------------------------------------------------
-  // User Logic: Complex Sparse FIR Filter
+  // User Logic: Complex Complex Sparse FIR Filter
   //---------------------------------------------------------------------------
 
   // Pipeline input through a small FIFO (same pattern as shiftright block)
@@ -350,13 +350,13 @@ module rfnoc_block_sparse_fir #(
   wire              fir_in_tready;
 
   // Single complex FIR engine: processes sc16 directly with complex coefficients
-  axi_sparse_fir_complex #(
+  axi_complex_sparse_fir_complex #(
     .IN_WIDTH    (IN_WIDTH),
     .OUT_WIDTH   (OUT_WIDTH),
     .COEFF_WIDTH (COEFF_WIDTH),
     .NUM_TAPS    (NUM_TAPS),
     .MAX_DELAY   (MAX_DELAY)
-  ) sparse_fir_complex_i (
+  ) complex_sparse_fir_complex_i (
     .clk            (ce_clk),
     .rst            (ctrlport_rst),
     .s_axis_tdata   (pipe_in_tdata),
@@ -386,7 +386,7 @@ module rfnoc_block_sparse_fir #(
   assign s_out_context_tvalid = m_in_context_tvalid;
   assign m_in_context_tready  = s_out_context_tready;
 
-endmodule // rfnoc_block_sparse_fir
+endmodule // rfnoc_block_complex_sparse_fir
 
 
 `default_nettype wire

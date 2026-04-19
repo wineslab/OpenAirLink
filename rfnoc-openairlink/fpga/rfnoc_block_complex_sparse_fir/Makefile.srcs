@@ -5,12 +5,12 @@
 #
 
 ##################################################
-# RFNoC Block Sources - Sparse FIR Filter
+# RFNoC Block Sources - Complex Sparse FIR Filter
 ##################################################
 RFNOC_OOT_SRCS += $(addprefix $(dir $(abspath $(lastword $(MAKEFILE_LIST)))), \
-rfnoc_sparse_fir_regs.vh \
-axi_sparse_fir.v \
-axi_sparse_fir_complex.v \
-rfnoc_block_sparse_fir.v \
-noc_shell_sparse_fir.v \
+rfnoc_complex_sparse_fir_regs.vh \
+axi_complex_sparse_fir.v \
+axi_complex_sparse_fir_complex.v \
+rfnoc_block_complex_sparse_fir.v \
+noc_shell_complex_sparse_fir.v \
 )

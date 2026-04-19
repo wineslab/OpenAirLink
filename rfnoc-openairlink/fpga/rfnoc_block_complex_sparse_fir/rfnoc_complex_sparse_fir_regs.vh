@@ -3,9 +3,9 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 //
-// Module:  rfnoc_sparse_fir_regs (Header)
+// Module:  rfnoc_complex_sparse_fir_regs (Header)
 //
-// Description:  Register definitions for rfnoc_block_sparse_fir.
+// Description:  Register definitions for rfnoc_block_complex_sparse_fir.
 //               All registers are 32-bit words from software's perspective.
 //
 // Register Map (per block instance):
@@ -26,10 +26,10 @@
 //   For NUM_TAPS=32, last tap register is at 0x10 + 31*0x08 + 0x04 = 0x10C.
 //
 
-// Address space per sparse_fir block. Each block occupies 2^SPARSE_FIR_ADDR_W bytes.
+// Address space per complex_sparse_fir block. Each block occupies 2^COMPLEX_SPARSE_FIR_ADDR_W bytes.
 // Must be wide enough for: REG_TAP_BASE + NUM_TAPS * REG_TAP_STRIDE
 // For NUM_TAPS=32: 0x10 + 32*0x08 = 0x110 -> need 9 bits (512 bytes).
-localparam SPARSE_FIR_ADDR_W = 9; // 512 bytes
+localparam COMPLEX_SPARSE_FIR_ADDR_W = 9; // 512 bytes
 
 // Read-only info registers
 localparam REG_COMPAT_NUM    = 'h00;

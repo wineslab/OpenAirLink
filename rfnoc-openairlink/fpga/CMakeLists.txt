@@ -28,5 +28,5 @@ install(FILES
 
 # Now call add_subdirectory() for every block subdir
 add_subdirectory(rfnoc_block_shiftright)
-add_subdirectory(rfnoc_block_sparse_fir)
+add_subdirectory(rfnoc_block_complex_sparse_fir)
 

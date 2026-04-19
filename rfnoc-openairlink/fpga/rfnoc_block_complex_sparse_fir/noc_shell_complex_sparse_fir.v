@@ -3,11 +3,11 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 //
-// Module: noc_shell_sparse_fir
+// Module: noc_shell_complex_sparse_fir
 //
 // Description:
 //
-//   NoC shell for the sparse_fir block. Based on the auto-generated
+//   NoC shell for the complex_sparse_fir block. Based on the auto-generated
 //   noc_shell_shiftright pattern. Single input, single output, sc16 format.
 //
 // Parameters:
@@ -21,7 +21,7 @@
 `default_nettype none
 
 
-module noc_shell_sparse_fir #(
+module noc_shell_complex_sparse_fir #(
   parameter [9:0] THIS_PORTID     = 10'd0,
   parameter       CHDR_W          = 64,
   parameter [5:0] MTU             = 10
@@ -124,7 +124,7 @@ module noc_shell_sparse_fir #(
   wire [63:0]  data_o_flush_done;
 
   backend_iface #(
-    .NOC_ID        (32'h5F1A0004),  // Unique NOC ID for sparse_fir
+    .NOC_ID        (32'h5F1A0004),  // Unique NOC ID for complex_sparse_fir
     .NUM_DATA_I    (1),
     .NUM_DATA_O    (1),
     .CTRL_FIFOSIZE ($clog2(32)),
@@ -296,7 +296,7 @@ module noc_shell_sparse_fir #(
     .flush_done            (data_o_flush_done[0])
   );
 
-endmodule // noc_shell_sparse_fir
+endmodule // noc_shell_complex_sparse_fir
 
 
 `default_nettype wire

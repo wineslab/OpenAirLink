@@ -13,8 +13,8 @@
     If not, see <https://www.gnu.org/licenses/>.
 **/
 
-#ifndef INCLUDED_RFNOC_OPENAIRLINK_SPARSE_FIR_BLOCK_CONTROL_HPP
-#define INCLUDED_RFNOC_OPENAIRLINK_SPARSE_FIR_BLOCK_CONTROL_HPP
+#ifndef INCLUDED_RFNOC_OPENAIRLINK_COMPLEX_SPARSE_FIR_BLOCK_CONTROL_HPP
+#define INCLUDED_RFNOC_OPENAIRLINK_COMPLEX_SPARSE_FIR_BLOCK_CONTROL_HPP
 
 #include <uhd/config.hpp>
 #include <uhd/rfnoc/noc_block_base.hpp>
@@ -23,9 +23,9 @@
 
 namespace rfnoc { namespace openairlink {
 
-/*! Block controller for the sparse FIR filter block.
+/*! Block controller for the complex sparse FIR filter block.
  *
- * This block implements a sparse FIR filter with NUM_TAPS independently
+ * This block implements a complex sparse FIR filter with NUM_TAPS independently
  * addressable taps, each with a programmable delay (in samples) and
  * complex coefficient. This enables large delay-spread channel emulation
  * (e.g. 5 us at 200 MHz) using only NUM_TAPS DSP48 slices.
@@ -40,12 +40,12 @@ namespace rfnoc { namespace openairlink {
  * COMPAT_MAJOR >= 2 indicates complex coefficient support. Old host code
  * writing only 16-bit real coefficients is backward-compatible (im=0).
  */
-class UHD_API sparse_fir_block_control : public uhd::rfnoc::noc_block_base
+class UHD_API complex_sparse_fir_block_control : public uhd::rfnoc::noc_block_base
 {
 public:
-    RFNOC_DECLARE_BLOCK(sparse_fir_block_control)
+    RFNOC_DECLARE_BLOCK(complex_sparse_fir_block_control)
 
-    // Register addresses (must match rfnoc_sparse_fir_regs.vh)
+    // Register addresses (must match rfnoc_complex_sparse_fir_regs.vh)
     static const uint32_t REG_COMPAT_NUM;
     static const uint32_t REG_NUM_TAPS;
     static const uint32_t REG_MAX_DELAY;
@@ -141,4 +141,4 @@ public:
 
 }} // namespace rfnoc::openairlink
 
-#endif /* INCLUDED_RFNOC_OPENAIRLINK_SPARSE_FIR_BLOCK_CONTROL_HPP */
+#endif /* INCLUDED_RFNOC_OPENAIRLINK_COMPLEX_SPARSE_FIR_BLOCK_CONTROL_HPP */

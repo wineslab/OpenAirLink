@@ -17,7 +17,7 @@
 install(
     FILES
     shiftright_block_control.hpp
-    sparse_fir_block_control.hpp
+    complex_sparse_fir_block_control.hpp
     DESTINATION include/rfnoc/openairlink
     COMPONENT headers
 )

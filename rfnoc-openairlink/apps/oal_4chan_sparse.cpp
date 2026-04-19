@@ -14,10 +14,10 @@
 **/
 
 /**
- * OpenAirLink 4-Channel Bidirectional Channel Emulator (Sparse FIR version)
+ * OpenAirLink 4-Channel Bidirectional Channel Emulator (Complex Sparse FIR version)
  * 
- * Uses the sparse FIR filter block instead of the dense FIR filter.
- * Each sparse FIR block has NUM_TAPS (default 4) independently addressable
+ * Uses the complex sparse FIR filter block instead of the dense FIR filter.
+ * Each complex sparse FIR block has NUM_TAPS (default 4) independently addressable
  * taps with programmable delays (0..MAX_DELAY-1 samples) and coefficients.
  *
  * This enables channel emulation over large delay spreads (e.g., 5+ us)
@@ -30,8 +30,8 @@
  *   UE3  <---> radio1 port 1
  *
  * Signal Flow:
- *   DOWNLINK: radio0_RX0 -> split -> SparseFIR_DL -> shift_DL -> UE radios TX
- *   UPLINK:   UE radios RX -> SparseFIR_UL -> shift_UL -> ADDER -> radio0_TX0
+ *   DOWNLINK: radio0_RX0 -> split -> ComplexSparseFIR_DL -> shift_DL -> UE radios TX
+ *   UPLINK:   UE radios RX -> ComplexSparseFIR_UL -> shift_UL -> ADDER -> radio0_TX0
  *
  * CSV Channel Config Format (per channel):
  *   delay0:coeff0 delay1:coeff1 ..., shift_value
@@ -52,7 +52,7 @@
 #include <uhd/utils/graph_utils.hpp>
 #include <uhd/utils/math.hpp>
 #include <uhd/utils/safe_main.hpp>
-#include <rfnoc/openairlink/sparse_fir_block_control.hpp>
+#include <rfnoc/openairlink/complex_sparse_fir_block_control.hpp>
 #include <rfnoc/openairlink/shiftright_block_control.hpp>
 #include <boost/format.hpp>
 #include <boost/program_options.hpp>
@@ -68,7 +68,7 @@
 
 namespace po = boost::program_options;
 using uhd::rfnoc::radio_control;
-using rfnoc::openairlink::sparse_fir_block_control;
+using rfnoc::openairlink::complex_sparse_fir_block_control;
 using rfnoc::openairlink::shiftright_block_control;
 using namespace std::chrono_literals;
 
@@ -100,7 +100,7 @@ std::string space_trim(const std::string& str) {
 }
 
 /****************************************************************************
- * Parse sparse FIR tap config string (supports complex coefficients)
+ * Parse complex sparse FIR tap config string (supports complex coefficients)
  *
  * Formats:
  *   "delay0:coeff0 delay1:coeff1 ..."              (real-only, backward compatible)
@@ -346,15 +346,15 @@ bool is_csv_valid(const std::string& path) {
  * Print channel status
  ***************************************************************************/
 void print_channel_status(
-    const std::array<sparse_fir_block_control::sptr, NUM_DL_CHANNELS>& sfir_dl,
+    const std::array<complex_sparse_fir_block_control::sptr, NUM_DL_CHANNELS>& sfir_dl,
     const std::array<shiftright_block_control::sptr, NUM_DL_CHANNELS>& shift_dl,
-    const std::array<sparse_fir_block_control::sptr, NUM_UL_CHANNELS>& sfir_ul,
+    const std::array<complex_sparse_fir_block_control::sptr, NUM_UL_CHANNELS>& sfir_ul,
     const std::array<shiftright_block_control::sptr, NUM_UL_CHANNELS>& shift_ul)
 {
     uint32_t num_taps = sfir_dl[0]->get_num_taps();
     uint32_t max_delay = sfir_dl[0]->get_max_delay();
 
-    std::cout << "\n=== Sparse FIR Config (taps=" << num_taps 
+    std::cout << "\n=== Complex Sparse FIR Config (taps=" << num_taps 
               << ", max_delay=" << max_delay << " samples) ===" << std::endl;
 
     // Helper to format a tap as "delay:re" or "delay:re+imj"
@@ -411,13 +411,13 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
     std::string radio0_id = "0/Radio#0";
     std::string radio1_id = "0/Radio#1";
 
-    // SparseFIR block IDs (matching image core)
-    std::string sfir_dl0_id = "0/SparseFIR#0";
-    std::string sfir_dl1_id = "0/SparseFIR#1";
-    std::string sfir_dl2_id = "0/SparseFIR#2";
-    std::string sfir_ul0_id = "0/SparseFIR#3";
-    std::string sfir_ul1_id = "0/SparseFIR#4";
-    std::string sfir_ul2_id = "0/SparseFIR#5";
+    // ComplexSparseFIR block IDs (matching image core)
+    std::string sfir_dl0_id = "0/ComplexSparseFIR#0";
+    std::string sfir_dl1_id = "0/ComplexSparseFIR#1";
+    std::string sfir_dl2_id = "0/ComplexSparseFIR#2";
+    std::string sfir_ul0_id = "0/ComplexSparseFIR#3";
+    std::string sfir_ul1_id = "0/ComplexSparseFIR#4";
+    std::string sfir_ul2_id = "0/ComplexSparseFIR#5";
 
     std::string shift_dl0_id = "0/Shiftright#0";
     std::string shift_dl1_id = "0/Shiftright#1";
@@ -472,7 +472,7 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
     po::notify(vm);
 
     if (vm.count("help")) {
-        std::cout << boost::format("OpenAirLink 4-Channel Sparse FIR Emulator\n%s") % desc
+        std::cout << boost::format("OpenAirLink 4-Channel Complex Sparse FIR Emulator\n%s") % desc
                   << std::endl;
         std::cout << "\nCSV format per channel: delay0:coeff0 delay1:coeff1 ... , shift_value\n"
                   << "Complex coefficients: delay:re+imj (e.g. 100:23170+23170j)\n"
@@ -504,16 +504,16 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
 
     size_t mb_idx = uhd::rfnoc::block_id_t(radio0_id).get_device_no();
 
-    // SparseFIR controls
-    std::array<sparse_fir_block_control::sptr, NUM_DL_CHANNELS> sfir_dl_ctrl;
-    std::array<sparse_fir_block_control::sptr, NUM_UL_CHANNELS> sfir_ul_ctrl;
+    // ComplexSparseFIR controls
+    std::array<complex_sparse_fir_block_control::sptr, NUM_DL_CHANNELS> sfir_dl_ctrl;
+    std::array<complex_sparse_fir_block_control::sptr, NUM_UL_CHANNELS> sfir_ul_ctrl;
 
-    sfir_dl_ctrl[0] = graph->get_block<sparse_fir_block_control>(uhd::rfnoc::block_id_t(sfir_dl0_id));
-    sfir_dl_ctrl[1] = graph->get_block<sparse_fir_block_control>(uhd::rfnoc::block_id_t(sfir_dl1_id));
-    sfir_dl_ctrl[2] = graph->get_block<sparse_fir_block_control>(uhd::rfnoc::block_id_t(sfir_dl2_id));
-    sfir_ul_ctrl[0] = graph->get_block<sparse_fir_block_control>(uhd::rfnoc::block_id_t(sfir_ul0_id));
-    sfir_ul_ctrl[1] = graph->get_block<sparse_fir_block_control>(uhd::rfnoc::block_id_t(sfir_ul1_id));
-    sfir_ul_ctrl[2] = graph->get_block<sparse_fir_block_control>(uhd::rfnoc::block_id_t(sfir_ul2_id));
+    sfir_dl_ctrl[0] = graph->get_block<complex_sparse_fir_block_control>(uhd::rfnoc::block_id_t(sfir_dl0_id));
+    sfir_dl_ctrl[1] = graph->get_block<complex_sparse_fir_block_control>(uhd::rfnoc::block_id_t(sfir_dl1_id));
+    sfir_dl_ctrl[2] = graph->get_block<complex_sparse_fir_block_control>(uhd::rfnoc::block_id_t(sfir_dl2_id));
+    sfir_ul_ctrl[0] = graph->get_block<complex_sparse_fir_block_control>(uhd::rfnoc::block_id_t(sfir_ul0_id));
+    sfir_ul_ctrl[1] = graph->get_block<complex_sparse_fir_block_control>(uhd::rfnoc::block_id_t(sfir_ul1_id));
+    sfir_ul_ctrl[2] = graph->get_block<complex_sparse_fir_block_control>(uhd::rfnoc::block_id_t(sfir_ul2_id));
 
     // Shiftright controls
     std::array<shiftright_block_control::sptr, NUM_DL_CHANNELS> shift_dl_ctrl;
@@ -530,7 +530,7 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
 
     uint32_t num_taps = sfir_dl_ctrl[0]->get_num_taps();
     uint32_t max_delay = sfir_dl_ctrl[0]->get_max_delay();
-    std::cout << boost::format("Sparse FIR: %d taps, max delay = %d samples (%.2f us at 200MHz)")
+    std::cout << boost::format("Complex Sparse FIR: %d taps, max delay = %d samples (%.2f us at 200MHz)")
                  % num_taps % max_delay % (max_delay * 5e-3) << std::endl;
 
     /************************************************************************
@@ -545,7 +545,7 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
     radio1_ctrl->enable_rx_timestamps(rx_timestamps, 1);
 
     /************************************************************************
-     * Initialize sparse FIR blocks (default: passthrough on tap 0)
+     * Initialize complex sparse FIR blocks (default: passthrough on tap 0)
      ***********************************************************************/
     for (size_t i = 0; i < NUM_DL_CHANNELS; i++) {
         sfir_dl_ctrl[i]->set_tap(0, 0, 32767);  // Tap 0: delay=0, max gain
@@ -629,7 +629,7 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
 
     std::cout << std::endl;
     std::cout << "***********************************************************" << std::endl;
-    std::cout << "*  OpenAirLink 4-Channel Sparse FIR Emulation Running     *" << std::endl;
+    std::cout << "*  OpenAirLink 4-Channel Complex Sparse FIR Emulation Running     *" << std::endl;
     std::cout << "*  1 gNB + 3 UE, " << num_taps << " taps, max_delay=" << max_delay
               << " samples   *" << std::endl;
     if (use_doppler) {
@@ -658,7 +658,7 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
     double elapsed_time = 0.0;
 
     // Lambda to apply one channel config
-    auto apply_channel = [&](sparse_fir_block_control::sptr sfir,
+    auto apply_channel = [&](complex_sparse_fir_block_control::sptr sfir,
                              shiftright_block_control::sptr shift,
                              const std::string& taps_s,
                              const std::string& shift_s) {

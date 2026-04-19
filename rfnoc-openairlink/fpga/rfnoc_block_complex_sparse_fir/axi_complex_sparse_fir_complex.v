@@ -3,11 +3,11 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 //
-// Module: axi_sparse_fir_complex
+// Module: axi_complex_sparse_fir_complex
 //
 // Description:
 //
-//   Complex-coefficient sparse FIR filter engine for channel emulation.
+//   Complex-coefficient complex sparse FIR filter engine for channel emulation.
 //   Processes sc16 (I[31:16], Q[15:0]) samples with complex tap coefficients
 //   h[k] = h_re[k] + j*h_im[k], performing true complex multiplication:
 //
@@ -19,7 +19,7 @@
 //   multiplies (h_re*I, h_im*Q, h_re*Q, h_im*I).
 //
 //   When h_im[k]=0 for all taps, behavior is identical to the real-only
-//   axi_sparse_fir module.
+//   axi_complex_sparse_fir module.
 //
 // Parameters:
 //
@@ -37,7 +37,7 @@
 
 `default_nettype none
 
-module axi_sparse_fir_complex #(
+module axi_complex_sparse_fir_complex #(
   parameter IN_WIDTH    = 16,
   parameter OUT_WIDTH   = 16,
   parameter COEFF_WIDTH = 16,
@@ -270,7 +270,7 @@ module axi_sparse_fir_complex #(
 
   // -------------------------------------------------------------------------
   // Adder trees: one for I output, one for Q output
-  // Same flat-array layout as axi_sparse_fir.v
+  // Same flat-array layout as axi_complex_sparse_fir.v
   // -------------------------------------------------------------------------
   reg signed [ACCUM_W-1:0] tree_i [0:TREE_FLAT_SIZE-1];
   reg signed [ACCUM_W-1:0] tree_q [0:TREE_FLAT_SIZE-1];

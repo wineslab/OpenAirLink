@@ -1,19 +1,19 @@
 # General parameters
 # -----------------------------------------
-# 1 gNB + 3 UE Bidirectional Channel Emulator Configuration (Sparse FIR)
+# 1 gNB + 3 UE Bidirectional Channel Emulator Configuration (Complex Sparse FIR)
 #
-# This image core replaces the dense FIR filters with sparse FIR filters.
-# Each sparse FIR has NUM_TAPS=16 programmable taps with arbitrary delay
+# This image core replaces the dense FIR filters with complex sparse FIR filters.
+# Each complex sparse FIR has NUM_TAPS=16 programmable taps with arbitrary delay
 # offsets into a MAX_DELAY=1024 sample deep BRAM delay line.
 #
 # Resource comparison (per FIR block, I+Q):
 #   Dense FIR (41 taps):   82 DSP48, 0 BRAM
-#   Sparse FIR (32 taps):  64 DSP48, 64 BRAM18
+#   Complex Sparse FIR (32 taps):  64 DSP48, 64 BRAM18
 #   Total (6 blocks):     384 DSP48, 384 BRAM18
 #
 # Delay spread coverage:
 #   Dense FIR:  41 taps × 5ns = 205 ns (~60m)
-#   Sparse FIR: 1024 samples × 5ns = 5.12 us (~1.5km)
+#   Complex Sparse FIR: 1024 samples × 5ns = 5.12 us (~1.5km)
 #
 # IMPORTANT (X410 BSP constraint): UHD's X410 BSP exposes two radio interfaces
 # (_device_.radio0 and _device_.radio1) and their ctrlports. Each radio block
@@ -26,8 +26,8 @@
 #   UE3  <---> radio1 port 1 (RX: UE3 TX, TX: DL to UE3)
 #
 # Signal Flow:
-#   DOWNLINK: radio0_RX0 -> SPLIT -> SparseFIR -> shift -> (radio0_TX1, radio1_TX0, radio1_TX1)
-#   UPLINK:   (radio0_RX1, radio1_RX0, radio1_RX1) -> SparseFIR -> shift -> ADDER -> radio0_TX0
+#   DOWNLINK: radio0_RX0 -> SPLIT -> ComplexSparseFIR -> shift -> (radio0_TX1, radio1_TX0, radio1_TX1)
+#   UPLINK:   (radio0_RX1, radio1_RX0, radio1_RX1) -> ComplexSparseFIR -> shift -> ADDER -> radio0_TX0
 
 
 ########################################################################
@@ -147,19 +147,19 @@ noc_blocks:
 
   # Downlink sparse channel emulation (one per UE)
   sfir_dl0:
-    block_desc: 'sparse_fir.yml'
+    block_desc: 'complex_sparse_fir.yml'
     parameters:
       NUM_TAPS: 16
       MAX_DELAY: 1024
       COEFF_WIDTH: 16
   sfir_dl1:
-    block_desc: 'sparse_fir.yml'
+    block_desc: 'complex_sparse_fir.yml'
     parameters:
       NUM_TAPS: 16
       MAX_DELAY: 1024
       COEFF_WIDTH: 16
   sfir_dl2:
-    block_desc: 'sparse_fir.yml'
+    block_desc: 'complex_sparse_fir.yml'
     parameters:
       NUM_TAPS: 16
       MAX_DELAY: 1024
@@ -176,19 +176,19 @@ noc_blocks:
   # UPLINK PATH: 3 UE TX -> gNB RX
   # ============================================
   sfir_ul0:
-    block_desc: 'sparse_fir.yml'
+    block_desc: 'complex_sparse_fir.yml'
     parameters:
       NUM_TAPS: 16
       MAX_DELAY: 1024
       COEFF_WIDTH: 16
   sfir_ul1:
-    block_desc: 'sparse_fir.yml'
+    block_desc: 'complex_sparse_fir.yml'
     parameters:
       NUM_TAPS: 16
       MAX_DELAY: 1024
       COEFF_WIDTH: 16
   sfir_ul2:
-    block_desc: 'sparse_fir.yml'
+    block_desc: 'complex_sparse_fir.yml'
     parameters:
       NUM_TAPS: 16
       MAX_DELAY: 1024

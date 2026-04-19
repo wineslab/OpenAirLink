@@ -1,5 +1,5 @@
 schema: rfnoc_modtool_args
-module_name: sparse_fir
+module_name: complex_sparse_fir
 version: "1.0"
 rfnoc_version: "1.0"
 chdr_width: 64
