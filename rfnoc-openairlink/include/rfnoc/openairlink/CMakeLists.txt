@@ -18,6 +18,8 @@ install(
     FILES
     shiftright_block_control.hpp
     complex_sparse_fir_block_control.hpp
+    upols_block_control.hpp
+    upols_reference.hpp
     DESTINATION include/rfnoc/openairlink
     COMPONENT headers
 )

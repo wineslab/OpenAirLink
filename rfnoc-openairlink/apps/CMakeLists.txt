@@ -90,3 +90,11 @@ target_link_libraries(oal_4chan_sparse
 )
 
 target_compile_definitions(oal_4chan_sparse PRIVATE CMAKE_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
+
+# Standalone UPOLS golden-model self-test and test-vector generator.
+# Does NOT link against UHD or rfnoc-openairlink — it's pure C++ using
+# the header-only reference implementation.
+add_executable(oal_upols_golden
+    oal_upols_golden.cpp
+)
+target_compile_features(oal_upols_golden PRIVATE cxx_std_14)

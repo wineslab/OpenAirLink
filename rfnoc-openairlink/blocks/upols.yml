@@ -1,0 +1,55 @@
+schema: rfnoc_modtool_args
+module_name: upols
+version: "1.0"
+rfnoc_version: "1.0"
+chdr_width: 64
+noc_id: 0x5F1A0005
+
+# Parameters:
+#   N : Filter length in taps  (default 1024)
+#   B : Block length in samples (default 512, also UHD recv() size on the host)
+#
+# Derived in HDL:
+#   K = 2 * B             (FFT size; overlap-save requires K >= 2B)
+#   P = ceil(N / B)       (number of sub-filter partitions)
+parameters:
+  N: 1024
+  B: 512
+
+clocks:
+  - name: rfnoc_chdr
+    freq: "[]"
+  - name: rfnoc_ctrl
+    freq: "[]"
+  - name: ce
+    freq: "[]"
+
+control:
+  fpga_iface: ctrlport
+  interface_direction: slave
+  fifo_depth: 32
+  clk_domain: ce
+  ctrlport:
+    byte_mode: False
+    timed: False
+    has_status: False
+
+data:
+  fpga_iface: axis_pyld_ctxt
+  clk_domain: ce
+  inputs:
+    in:
+      item_width: 32
+      nipc: 1
+      context_fifo_depth: 2
+      payload_fifo_depth: 32
+      format: sc16
+      mdata_sig: ~
+  outputs:
+    out:
+      item_width: 32
+      nipc: 1
+      context_fifo_depth: 2
+      payload_fifo_depth: 32
+      format: sc16
+      mdata_sig: ~
